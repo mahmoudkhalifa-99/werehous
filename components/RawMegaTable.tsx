@@ -1,30 +1,163 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
-import { Product, StockMovement } from '../types';
+import { Product, StockMovement, AppSettings, CustomFieldTarget } from '../types';
 import { 
     Search, Plus, Save, X, Trash2, Calendar, Hash, Truck, 
     Settings, Printer, FileDown, FileUp, Clock, User, 
     Scale, Timer, FileText, ChevronLeft, 
     PlusCircle, ClipboardList, UserCheck, UserCog, 
     ArrowDownLeft, ArrowUpRight, EyeOff, Eye, Building2, MapPin,
-    Phone, Gavel, ClipboardSignature, ArrowRightLeft,
-    PlusSquare, MinusSquare, Warehouse, RefreshCw, Database,
-    AlertTriangle, ShieldAlert, FileWarning, LogOut, Gauge, Undo2,
-    RotateCcw, ClipboardPaste, Send, Edit2, Check, History, Package,
-    ShieldCheck, Activity, ShoppingCart, Download, FileSpreadsheet
+    ArrowRightLeft, PlusSquare, MinusSquare, Warehouse, RefreshCw, 
+    Database, AlertTriangle, ShieldAlert, FileWarning, LogOut, Gauge, 
+    Undo2, RotateCcw, ClipboardPaste, Send, Edit2, Check, History, 
+    Package, ShieldCheck, Activity, ShoppingCart, Download, FileSpreadsheet,
+    XCircle, HardHat, ClipboardSignature, UserPlus, Phone, Share2
 } from 'lucide-react';
 import { printService } from '../services/printing';
+import { InputModal, GlassCard } from './NeumorphicUI';
+import { RawBalancesTable } from './RawBalancesTable';
 import * as XLSX from 'xlsx';
+
+export interface Props {
+    view: 'raw_in' | 'control_out' | 'wh_out' | 'wh_transfer' | 'raw_sale' | 'silo_trans' | 'wh_adj' | 'silo_adj' | 'shortage' | 'raw_return' | 'raw_ledger' | 'balances' | 'raw_in_daily';
+    onSuccess: () => void;
+    title: string;
+}
 
 const forceEnNumsStyle = {
     fontFamily: 'Inter, sans-serif',
     fontVariantNumeric: 'lining-nums',
-    direction: 'ltr' as const
+    direction: 'ltr' as const,
+    fontWeight: '700'
 };
 
-const inputClasses = "w-full p-2 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-blue-500 bg-white transition-all shadow-sm";
-const labelClasses = "text-[10px] font-black text-slate-400 flex items-center gap-1 mb-1 whitespace-nowrap pr-2 uppercase tracking-tighter";
+const inputClasses = "w-full p-2 border border-slate-200 rounded-xl text-[12px] font-bold outline-none focus:border-blue-500 bg-white transition-all shadow-sm h-9";
+const labelClasses = "text-[10px] font-black text-slate-500 flex items-center gap-1 mb-0.5 whitespace-nowrap pr-1 uppercase tracking-tighter";
+
+const RawLedgerView = () => <RawBalancesTable />;
+
+const RawDailyDetailView = () => {
+    const { settings } = useApp();
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const movements = dbService.getMovements().filter(m => 
+        m.warehouse === 'raw' && 
+        m.customFields?.viewContext === 'raw_in' &&
+        m.date.startsWith(selectedDate)
+    );
+
+    const tableData: any[] = movements.flatMap((m, idx) => m.items.map((it, iIdx) => ({
+        ...m,
+        ...it,
+        ...m.customFields,
+        moveId: m.id,
+        itemIdx: iIdx,
+        displayDate: new Date(m.date).toLocaleDateString('en-GB')
+    }))).filter(r => (r.productName || '').includes(searchTerm) || (r.refNumber || '').includes(searchTerm));
+
+    return (
+        <div className="space-y-4 animate-fade-in font-cairo" dir="rtl">
+            <div className="flex flex-col md:flex-row items-center gap-4 bg-white p-4 rounded-xl border no-print shadow-sm">
+                <div className="flex items-center gap-2">
+                    <Calendar size={20} className="text-blue-600" />
+                    <input 
+                        type="date" 
+                        value={selectedDate} 
+                        onChange={e => setSelectedDate(e.target.value)} 
+                        className="p-2 border rounded-lg font-bold outline-none focus:ring-2 focus:ring-blue-100" 
+                        style={forceEnNumsStyle}
+                    />
+                </div>
+                <div className="relative flex-1">
+                    <input 
+                        className="w-full pr-10 pl-4 py-2 border rounded-xl outline-none focus:border-blue-500 font-bold" 
+                        placeholder="بحث في وارد اليوم..." 
+                        value={searchTerm} 
+                        onChange={e => setSearchTerm(e.target.value)} 
+                    />
+                    <Search className="absolute right-3 top-2.5 text-gray-400" size={18}/>
+                </div>
+            </div>
+            
+            <div className="bg-white rounded-xl border overflow-hidden shadow-premium overflow-x-auto">
+                <table className="w-full text-center border-collapse min-w-[1800px]">
+                    <thead className="bg-[#0f172a] text-yellow-400 h-14">
+                        <tr className="text-[11px] uppercase font-black">
+                            <th className="p-2 border border-slate-700 w-12">م</th>
+                            <th className="p-2 border border-slate-700">رقم الإذن</th>
+                            <th className="p-2 border border-slate-700 text-right pr-6">المورد</th>
+                            <th className="p-2 border border-slate-700 text-right pr-6 min-w-[300px]">اسم الصنف</th>
+                            <th className="p-2 border border-slate-700 bg-blue-900/30 font-black">وزن الميزان</th>
+                            <th className="p-2 border border-slate-700">وزن البوليصة</th>
+                            <th className="p-2 border border-slate-700">الفرق</th>
+                            <th className="p-2 border border-slate-700">السيارة</th>
+                            <th className="p-2 border border-slate-700">السائق</th>
+                            <th className="p-2 border border-slate-700">الوردية</th>
+                            <th className="p-2 border border-slate-700">أمين المخزن</th>
+                        </tr>
+                    </thead>
+                    <tbody className="font-bold text-slate-700 text-sm">
+                        {tableData.map((row, idx) => (
+                            <tr key={`${row.moveId}-${row.itemIdx}`} className="border-b h-12 hover:bg-slate-50 transition-colors">
+                                <td className="p-2 border" style={forceEnNumsStyle}>{idx + 1}</td>
+                                <td className="p-2 border font-mono text-indigo-700">{row.refNumber}</td>
+                                <td className="p-2 border text-right pr-4">{row.supplier || row.reason}</td>
+                                <td className="p-2 border text-right pr-4 font-black text-slate-900">{row.productName}</td>
+                                <td className="p-2 border bg-blue-50 text-blue-800 text-lg font-black" style={forceEnNumsStyle}>{row.quantity.toFixed(3)}</td>
+                                <td className="p-2 border" style={forceEnNumsStyle}>{(parseFloat(row.policyWeight) || 0).toFixed(3)}</td>
+                                <td className="p-2 border font-black text-rose-600" style={forceEnNumsStyle}>{(row.quantity - (parseFloat(row.policyWeight) || 0)).toFixed(3)}</td>
+                                <td className="p-2 border font-mono">{row.carNumber}</td>
+                                <td className="p-2 border">{row.driverName}</td>
+                                <td className="p-2 border">{row.shift}</td>
+                                <td className="p-2 border text-slate-400">{row.storekeeper}</td>
+                            </tr>
+                        ))}
+                        {tableData.length === 0 && <tr><td colSpan={11} className="p-24 text-slate-300 font-black text-xl italic">لا توجد سجلات وارد في هذا التاريخ</td></tr>}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+const Field: React.FC<{ label: string, icon?: React.ReactNode, children: React.ReactNode }> = ({ label, icon, children }) => (
+    <div className="flex flex-col gap-1 w-full">
+        <label className={labelClasses}>{icon} {label}</label>
+        {children}
+    </div>
+);
+
+const DynamicCustomFieldsRenderer: React.FC<{ 
+    target: CustomFieldTarget, 
+    formData: any, 
+    setFormData: (data: any) => void 
+}> = ({ target, formData, setFormData }) => {
+    const { settings } = useApp();
+    const relevantFields = (settings.customFields || []).filter(f => f.targets.includes(target));
+    if (relevantFields.length === 0) return null;
+    return (
+        <>
+            {relevantFields.map(field => (
+                <Field key={field.id} label={field.label} icon={<Share2 size={13}/>}>
+                    <select 
+                        className={inputClasses} 
+                        value={formData.customFields?.[field.id] || ''} 
+                        onChange={e => {
+                            const newCustom = { ...(formData.customFields || {}), [field.id]: e.target.value };
+                            setFormData({ ...formData, customFields: newCustom });
+                        }}
+                    >
+                        <option value="">-- اختر --</option>
+                        {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                </Field>
+            ))}
+        </>
+    );
+};
 
 function smartNormalize(text: any) {
     if (!text) return '';
@@ -33,850 +166,760 @@ function smartNormalize(text: any) {
         .replace(/ة/g, 'ه')
         .replace(/ى/g, 'ي')
         .replace(/[\u064B-\u0652]/g, '')
-        .replace(/\s+/g, ' '); 
+        .replace(/\s+/g, ''); 
 }
 
-const DEFAULT_STYLES = {
-    fontFamily: 'Calibri, sans-serif',
-    fontSize: 13,
-    isBold: true,
-    textAlign: 'center' as 'right' | 'center' | 'left',
-    verticalAlign: 'middle' as 'top' | 'middle' | 'bottom',
-    decimals: 3,
-    rowHeight: 45,
-    columnWidth: 150
+const formatVal = (n: any) => {
+    const num = parseFloat(n);
+    if (isNaN(num) || num === 0) return '-';
+    return num.toLocaleString('en-US', { 
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3
+    });
 };
 
-const TabItem: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode, label: string, color: string }> = ({ active, onClick, icon, label, color }) => {
-    const colorClasses: Record<string, string> = {
-        emerald: active ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-lg scale-105' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50',
-        rose: active ? 'border-rose-500 bg-rose-50 text-rose-700 shadow-lg scale-105' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50',
-        indigo: active ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-lg scale-105' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50',
-        amber: active ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-lg scale-105' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50',
-        slate: active ? 'border-slate-500 bg-slate-100 text-slate-800 shadow-lg scale-105' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50'
-    };
-
-    return (
-        <button onClick={onClick} className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center justify-center gap-3 group h-36 ${colorClasses[color]}`}>
-            <div className={`transition-transform group-hover:scale-110 ${active ? 'text-current' : 'opacity-40'}`}>{icon}</div>
-            <span className="font-black text-sm tracking-tight">{label}</span>
-        </button>
-    );
-};
-
-const Field: React.FC<{ label: string, icon?: React.ReactNode, children: React.ReactNode, isBlue?: boolean }> = ({ label, icon, children, isBlue }) => (
-    <div className="flex flex-col gap-0.5">
-        <label className={`${labelClasses} ${isBlue ? 'text-blue-500' : ''}`}>{icon} {label}</label>
-        {children}
-    </div>
-);
-
-interface Props {
-    view: 'raw_in' | 'raw_sale' | 'silo_trans' | 'control_out' | 'shortage' | 'wh_adj' | 'silo_adj' | 'wh_out' | 'wh_transfer' | 'raw_return' | 'raw_ledger' | 'raw_in_daily';
-    onSuccess: () => void;
-    title: string;
-}
-
-const INITIAL_FORM_STATE = {
-    date: new Date().toISOString().split('T')[0],
-    supplyOrderNo: '',
-    policyNo: '',
-    carType: 'دبابة',
-    storekeeper: 'System Admin',
-    supplier: '',
-    supplierCode: 'آلي..',
-    transportCompany: '',
-    carNumber: '',
-    driverName: '',
-    driverPhone: '',
-    arrivalTime: '',
-    entryTime: '',
-    exitTime: '',
-    shift: 'الأولى',
-    inspector: '',
-    weighmasterName: '',
-    inspectionReportNo: '',
-    procedure: '',
-    policyWeight: '',
-    scaleWeight: '',
-    cardId: '',
-    itemStatus: 'تحت الفحص',
-    notes: '',
-    targetWarehouse: '',
-    recipientName: '',
-    expiryDate: '',
-    fattening: '',
-    fish: '',
-    duck: '',
-    pets: ''
-};
-
-export const RawMegaTable: React.FC<Props> = ({ view, onSuccess, title }) => {
-    const { settings, products, user, refreshProducts, updateSettings } = useApp();
+/**
+ * 1. وارد خامات (مشتريات)
+ */
+const RawInView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
+    const { settings, products, user, refreshProducts, addNotification } = useApp();
+    const [isFormOpen, setIsFormOpen] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [itemSearch, setItemSearch] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [draftItems, setDraftItems] = useState<any[]>([]);
-    const [updateTrigger, setUpdateTrigger] = useState(0); 
-    const [qty, setQty] = useState<string>('');
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-
-    const [pastedItems, setParsedItems] = useState<any[]>([]);
-    const [editingMoveId, setEditingMoveId] = useState<string | null>(null);
-    /** Fix: Changed editForm initial state to strings to match state usage with input fields */
-    const [editForm, setEditForm] = useState({ fattening: '0', fish: '0', duck: '0', pets: '0', notes: '' });
-
-    const tableRef = useRef<HTMLTableElement>(null);
-    const [tableStyles] = useState(DEFAULT_STYLES);
-    const [formHeader, setFormHeader] = useState(INITIAL_FORM_STATE);
-
-    // Fix formatVal to correctly show 0.000 and avoid dash for important sum columns
-    const formatVal = (n: any) => {
-        const num = parseFloat(n);
-        if (isNaN(num)) return '-';
-        if (num === 0) return (0).toFixed(tableStyles.decimals);
-        return num.toLocaleString('en-US', { 
-            minimumFractionDigits: tableStyles.decimals,
-            maximumFractionDigits: tableStyles.decimals
-        });
+    const [updateTrigger, setUpdateTrigger] = useState(0);
+    
+    const INITIAL_FORM = {
+        date: new Date().toISOString().split('T')[0],
+        supplyOrderNo: '', policyNo: '', carType: 'دبابة', 
+        storekeeper: user?.name || 'System Admin',
+        supplier: '', supplierCode: 'آلي..', transportCompany: '', carNumber: '',
+        driverName: '', driverPhone: '', arrivalTime: '', entryTime: '', exitTime: '',
+        shift: 'الأولى', inspector: '', weighmasterName: '', inspectionReportNo: '',
+        procedure: '', policyWeight: '', scaleWeight: '', cardId: '', 
+        itemStatus: 'تحت الفحص', refNumber: '', customFields: {}
     };
 
-    const handleExport = () => {
-        if (!tableRef.current) return;
-        const ws = XLSX.utils.table_to_sheet(tableRef.current);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "RawReport");
-        XLSX.writeFile(wb, `${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
-    };
+    const [formHeader, setFormHeader] = useState<any>(INITIAL_FORM);
 
-    const availableWarehouses = useMemo(() => {
-        const rawItems = products.filter(p => p.warehouse === 'raw');
-        const whSet = new Set<string>();
-        rawItems.forEach(p => {
-            if (p.customFields?.warehouseName) whSet.add(p.customFields.warehouseName);
-        });
-        return Array.from(whSet).sort();
-    }, [products]);
+    const [inputModal, setInputModal] = useState<{isOpen: boolean, listKey: keyof AppSettings | null, title: string}>({
+        isOpen: false, listKey: null, title: ''
+    });
 
     const calculatedDuration = useMemo(() => {
-        if (!formHeader.entryTime || !formHeader.exitTime) return '00:00';
+        if (!formHeader.entryTime || !formHeader.exitTime) return '--:--';
         const [h1, m1] = formHeader.entryTime.split(':').map(Number);
         const [h2, m2] = formHeader.exitTime.split(':').map(Number);
-        let diffMinutes = (h2 * 60 + m2) - (h1 * 60 + m1);
-        if (diffMinutes < 0) diffMinutes += 24 * 60; 
-        return `${Math.floor(diffMinutes / 60).toString().padStart(2, '0')}:${(diffMinutes % 60).toString().padStart(2, '0')}`;
+        let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+        if (diff < 0) diff += 24 * 60;
+        return `${Math.floor(diff / 60).toString().padStart(2, '0')}:${(diff % 60).toString().padStart(2, '0')}`;
     }, [formHeader.entryTime, formHeader.exitTime]);
-
-    const [activeMoveType, setActiveMoveType] = useState<string>('out');
-
-    const isQuickDesign = ['silo_trans', 'wh_adj', 'silo_adj', 'shortage', 'raw_return'].includes(view);
-    const isControlOut = view === 'control_out';
-    const isSimplifiedOut = view === 'wh_out' || view === 'wh_transfer' || view === 'raw_sale';
-    const isRawIn = view === 'raw_in';
-    const isRawDailyDetail = view === 'raw_in_daily';
-
-    const currentTabs = useMemo(() => {
-        if (view === 'silo_trans') return [
-            { id: 'in', label: 'إضافة للصوامع', icon: <PlusCircle size={28}/>, color: 'emerald' },
-            { id: 'out', label: 'خصم من الصوامع', icon: <MinusSquare size={28}/>, color: 'rose' }
-        ];
-        if (view === 'wh_adj') return [
-            { id: 'in', label: 'تسوية إضافة (مخازن)', icon: <PlusSquare size={28}/>, color: 'emerald' },
-            { id: 'out', label: 'تسوية خصم (مخازن)', icon: <MinusSquare size={28}/>, color: 'rose' }
-        ];
-        if (view === 'silo_adj') return [
-            { id: 'in', label: 'تسوية إضافة (صوامع)', icon: <PlusSquare size={28}/>, color: 'emerald' },
-            { id: 'out', label: 'تسوية خصم (صوامع)', icon: <MinusSquare size={28}/>, color: 'rose' }
-        ];
-        if (view === 'shortage') return [
-            { id: 'allowed', label: 'عجز مسموح به', icon: <FileWarning size={28}/>, color: 'amber' },
-            { id: 'disallowed', label: 'عجز غير مسموح به', icon: <ShieldAlert size={28}/>, color: 'rose' }
-        ];
-        if (view === 'raw_return') return [
-            { id: 'in', label: 'مرتجع وارد (إضافة)', icon: <Undo2 size={28}/>, color: 'emerald' },
-            { id: 'out', label: 'مرتجع صادر (خصم)', icon: <RotateCcw size={28} className="rotate-90"/>, color: 'rose' }
-        ];
-        return [];
-    }, [view]);
-
-    const getSafeIsoDate = (dateStr: string) => {
-        if (!dateStr) return new Date().toISOString();
-        const d = new Date(dateStr);
-        return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-    };
-
-    const handlePasteControl = (e: React.ClipboardEvent) => {
-        const text = e.clipboardData.getData('text');
-        if (!text) return;
-        
-        const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
-        const items = rows.map(row => {
-            const cols = row.split('\t');
-            const dateRaw = cols[0]?.trim() || new Date().toISOString().split('T')[0];
-            const itemCode = cols[1]?.trim(); 
-            const jdeCode = cols[2]?.trim();  
-            const name = cols[3]?.trim();
-            const unit = cols[4]?.trim() || 'طن';
-            const fattening = parseFloat(cols[5]) || 0;
-            const fish = parseFloat(cols[6]) || 0;
-            const duck = parseFloat(cols[7]) || 0;
-            const pets = parseFloat(cols[8]) || 0;
-            const total = fattening + fish + duck + pets;
-
-            const product = products.find(p => 
-                (itemCode && String(p.barcode) === String(itemCode)) || 
-                (jdeCode && (String(p.jdeCode) === String(jdeCode) || String(p.jdeCodeBulk) === String(jdeCode) || String(p.jdeCodePacked) === String(jdeCode))) || 
-                (name && smartNormalize(p.name) === smartNormalize(name))
-            );
-            
-            const currentSiloStock = product ? (product.stockPacked ?? 0) : 0;
-            const balanceAfter = currentSiloStock - total;
-
-            return {
-                date: dateRaw,
-                itemCode: itemCode || product?.barcode || '-',
-                jdeCode: jdeCode || product?.jdeCode || '-',
-                productName: product?.name || name || 'صنف غير معروف',
-                productId: product?.id,
-                unit,
-                fattening, fish, duck, pets,
-                total,
-                currentSiloStock,
-                balanceAfter,
-                isValid: !!product
-            };
-        });
-        setParsedItems(items);
-    };
-
-    const handlePostBatchControl = () => {
-        const validItems = pastedItems.filter(i => i.isValid);
-        if (validItems.length === 0) return alert('لا توجد بيانات صالحة للترحيل. تأكد من مطابقة مسميات أو أكواد الأصناف.');
-
-        validItems.forEach(item => {
-            const nextId = dbService.getNextId('issueVoucher');
-            const movement: StockMovement = {
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                date: getSafeIsoDate(item.date),
-                type: 'out',
-                warehouse: 'raw',
-                refNumber: nextId,
-                user: user?.name || 'Admin',
-                items: [{
-                    productId: item.productId,
-                    productName: item.productName,
-                    productCode: item.itemCode,
-                    jdeCode: item.jdeCode,
-                    unit: item.unit,
-                    quantity: item.total,
-                    quantityPacked: item.total 
-                }],
-                reason: 'صرف كنترول للتشغيل (Batch)',
-                customFields: { 
-                    viewContext: 'control_out',
-                    fattening: item.fattening,
-                    fish: item.fish,
-                    duck: item.duck,
-                    pets: item.pets,
-                    shift: 'الأولى',
-                    storekeeper: user?.name || 'Admin',
-                    siloBalanceAtMove: item.balanceAfter 
-                }
-            };
-            dbService.saveMovement(movement);
-        });
-
-        refreshProducts();
-        setUpdateTrigger(p => p + 1);
-        setParsedItems([]);
-        setIsFormOpen(false);
-        alert(`تم بنجاح ترحيل ${validItems.length} حركة وتحديث أرصدة الصوامع.`);
-    };
-
-    const handleQuickAddAndSave = () => {
-        if (!selectedProduct) return alert('يرجى اختيار صنف أولاً');
-        
-        let finalQty = 0;
-        let usePacked = false;
-        let extraFields: any = {};
-
-        if (isControlOut) {
-            const f = parseFloat(formHeader.fattening) || 0;
-            const s = parseFloat(formHeader.fish) || 0;
-            const d = parseFloat(formHeader.duck) || 0;
-            const p = parseFloat(formHeader.pets) || 0;
-            finalQty = f + s + d + p;
-            usePacked = true;
-            extraFields = { fattening: f, fish: s, duck: d, pets: p, siloBalanceAtMove: (selectedProduct.stockPacked || 0) - finalQty };
-        } else {
-            finalQty = parseFloat(qty) || 0;
-        }
-
-        if (finalQty <= 0) return alert('يرجى إدخل كمية صحيحة');
-
-        let sysType: any = 'adjustment';
-        let customReason = title;
-
-        if (view === 'silo_trans') {
-            sysType = activeMoveType === 'in' ? 'in' : 'out';
-            customReason = activeMoveType === 'in' ? 'تحويل وارد للصوامع' : 'تحويل صادر من الصوامع';
-            usePacked = true;
-        } else if (view === 'shortage') {
-            sysType = 'adjustment';
-            customReason = activeMoveType === 'allowed' ? 'عجز مسموح به' : 'عجز غير مسموح به';
-        } else if (view === 'wh_adj' || view === 'silo_adj') {
-            sysType = 'adjustment';
-            const prefix = view === 'wh_adj' ? 'مخازن' : 'صوامع';
-            customReason = `تسوية ${activeMoveType === 'in' ? 'إضافة' : 'خصم'} (${prefix})`;
-            usePacked = view === 'silo_adj';
-        } else if (view === 'wh_out' || view === 'wh_transfer' || view === 'raw_sale' || view === 'control_out') {
-            sysType = 'out';
-            customReason = view === 'wh_out' ? 'صرف مخازن خامات' : (view === 'wh_transfer' ? 'تحويلات مخازن' : (view === 'control_out' ? 'صرف كنترول تشغيل' : 'إذن مبيعات خامات'));
-        } else if (view === 'raw_return') {
-            sysType = activeMoveType === 'in' ? 'return' : 'out';
-            customReason = activeMoveType === 'in' ? 'مرتجع وارد (إضافة)' : 'مرتجع صادر (خصم)';
-        }
-
-        const nextId = dbService.getNextId(sysType === 'out' ? 'issueVoucher' : 'receiveVoucher');
-
-        const movement: StockMovement = {
-            id: Date.now().toString(),
-            date: getSafeIsoDate(formHeader.date),
-            type: sysType,
-            warehouse: 'raw',
-            refNumber: nextId,
-            user: user?.name || 'Admin',
-            items: [{
-                productId: selectedProduct.id,
-                productName: selectedProduct.name,
-                productCode: selectedProduct.barcode,
-                jdeCode: selectedProduct.jdeCode || '-',
-                unit: selectedProduct.unit || 'طن',
-                quantity: finalQty,
-                quantityBulk: usePacked ? 0 : finalQty,
-                quantityPacked: usePacked ? finalQty : 0,
-                notes: formHeader.notes,
-                shift: formHeader.shift,
-                storekeeper: formHeader.storekeeper,
-                receiverWarehouse: formHeader.targetWarehouse
-            }],
-            reason: formHeader.recipientName || customReason,
-            customFields: { ...formHeader, ...extraFields, viewContext: view, moveMode: activeMoveType, timeDiff: calculatedDuration }
-        };
-
-        dbService.saveMovement(movement);
-        refreshProducts();
-        setUpdateTrigger(p => p + 1);
-        setQty('');
-        setItemSearch('');
-        setSelectedProduct(null);
-        setFormHeader(prev => ({ ...prev, notes: '', recipientName: '', fattening: '', fish: '', duck: '', pets: '' }));
-        setIsFormOpen(false);
-        alert('تم تسجيل الحركة بنجاح.');
-    };
 
     const handleAddToDraft = () => {
         if (!selectedProduct) return alert('يرجى اختيار صنف أولاً');
-        const finalQty = parseFloat(formHeader.scaleWeight) || 0;
-        if (finalQty <= 0) return alert('يرجى إدخال أوزان الميزان بشكل صحيح');
-
-        const newItem = {
-            productId: selectedProduct.id,
-            productName: selectedProduct.name,
-            productCode: selectedProduct.barcode,
-            jdeCode: selectedProduct.jdeCode || '-',
-            unit: selectedProduct.unit || 'عدد',
-            quantity: finalQty,
-            quantityBulk: finalQty,
-            currentBalance: selectedProduct.stock,
-            ...formHeader,
-            duration: calculatedDuration
-        };
-
-        setDraftItems([...draftItems, newItem]);
-        setSelectedProduct(null);
-        setItemSearch('');
-        setFormHeader(prev => ({...prev, policyWeight: '', scaleWeight: '', cardId: ''}));
+        const sw = parseFloat(formHeader.scaleWeight) || 0;
+        if (sw <= 0) return alert('يرجى إدخال وزن الميزان');
+        const pw = parseFloat(formHeader.policyWeight) || 0;
+        
+        setDraftItems([...draftItems, {
+            productId: selectedProduct.id, productName: selectedProduct.name,
+            productCode: selectedProduct.barcode, quantity: sw, policyWeight: pw,
+            diffWeight: sw - pw, 
+            additionQty: Math.min(sw, pw), // حساب الإضافة (القيمة الأقل)
+            cardId: formHeader.cardId, itemStatus: formHeader.itemStatus,
+            unit: selectedProduct.unit || 'طن', jdeCode: selectedProduct.jdeCode || '-'
+        }]);
+        setSelectedProduct(null); setItemSearch('');
     };
 
-    const handleSaveMovementLegacy = () => {
-        if (draftItems.length === 0) return alert('القائمة فارغة');
-        const nextId = dbService.getNextId(view === 'raw_in' ? 'receiveVoucher' : 'issueVoucher');
-        const movement: StockMovement = {
-            id: Date.now().toString(),
-            date: getSafeIsoDate(formHeader.date),
-            type: view === 'raw_in' ? 'in' : 'out',
-            warehouse: 'raw',
-            refNumber: nextId,
-            user: user?.name || 'Admin',
-            items: draftItems,
-            reason: formHeader.supplier || title,
-            customFields: { ...formHeader, duration: calculatedDuration, viewContext: view }
+    const handleSave = () => {
+        if (draftItems.length === 0) return alert('قائمة الأصناف فارغة');
+        const realRef = formHeader.refNumber || dbService.getNextId('receiveVoucher');
+        const move: StockMovement = {
+            id: Date.now().toString(), 
+            date: new Date(formHeader.date).toISOString(),
+            type: 'in', warehouse: 'raw', refNumber: realRef,
+            user: user?.name || 'Admin', items: draftItems, 
+            reason: formHeader.supplier || 'وارد خامات',
+            customFields: { ...formHeader, ...formHeader.customFields, viewContext: 'raw_in', duration: calculatedDuration, refNumber: realRef }
         };
-        dbService.saveMovement(movement);
-        refreshProducts();
+        dbService.saveMovement(move); 
+        refreshProducts(); 
+        setDraftItems([]); 
+        setFormHeader({...INITIAL_FORM, refNumber: dbService.peekNextId('receiveVoucher')});
         setUpdateTrigger(p => p + 1);
-        setDraftItems([]);
-        setFormHeader(INITIAL_FORM_STATE);
-        setIsFormOpen(false);
-        alert('تم ترحيل البيانات بنجاح');
+        addNotification('تم ترحيل الوارد بنجاح وتصفير الحقول', 'success');
     };
 
-    const startEditControl = (row: any) => {
-        setEditingMoveId(row.moveId);
-        /** Fix: Initialized editForm values as strings to match input type requirements */
-        setEditForm({
-            fattening: String(row.fattening || 0),
-            fish: String(row.fish || 0),
-            duck: String(row.duck || 0),
-            pets: String(row.pets || 0),
-            notes: row.notes || ''
-        });
-    };
+    const tableData: any[] = useMemo(() => {
+        return dbService.getMovements()
+            .filter(m => m.customFields?.viewContext === 'raw_in')
+            .flatMap(m => m.items.map(it => ({ 
+                ...m, 
+                ...it, 
+                ...m.customFields, 
+                moveId: m.id,
+                displayDate: new Date(m.date).toLocaleDateString('en-GB')
+            })))
+            .filter(r => smartNormalize(r.productName).includes(smartNormalize(searchTerm)) || smartNormalize(r.refNumber).includes(smartNormalize(searchTerm)))
+            .reverse();
+    }, [searchTerm, updateTrigger]);
 
-    const saveEditControl = () => {
-        if (!editingMoveId) return;
-        const movements = dbService.getMovements();
-        const idx = movements.findIndex(m => m.id === editingMoveId);
-        if (idx !== -1) {
-            const oldMove = movements[idx];
-            dbService.deleteMovement(oldMove.id); 
-            
-            /** Fix: Parsed string values from editForm to numbers for calculations */
-            const fat = parseFloat(editForm.fattening) || 0;
-            const fish = parseFloat(editForm.fish) || 0;
-            const duck = parseFloat(editForm.duck) || 0;
-            const pets = parseFloat(editForm.pets) || 0;
-            const newTotal = fat + fish + duck + pets;
-            
-            const updatedMove: StockMovement = {
-                ...oldMove,
-                items: oldMove.items.map((it, i) => i === 0 ? { ...it, quantity: newTotal, quantityPacked: newTotal, notes: editForm.notes } : it),
-                customFields: {
-                    ...oldMove.customFields,
-                    fattening: fat,
-                    fish: fish,
-                    duck: duck,
-                    pets: pets
-                }
-            };
-            dbService.saveMovement(updatedMove);
-            refreshProducts();
-            setUpdateTrigger(p => p + 1);
-            setEditingMoveId(null);
-            alert('تم تعديل البيانات وتحديث الرصيد.');
-        }
-    };
-
-    const tableData = useMemo(() => {
-        const targetView = isRawDailyDetail ? 'raw_in' : view;
-        const moves = dbService.getMovements().filter(m => {
-            const matchesContext = m.customFields?.viewContext === targetView;
-            if (isRawDailyDetail) {
-                return matchesContext && m.date.startsWith(selectedDate);
-            }
-            return matchesContext;
-        });
-
-        const flattened = moves.flatMap(m => m.items.map((item, i) => {
-            const pw = parseFloat(m.customFields?.policyWeight || '0');
-            const sw = parseFloat(item.quantity?.toString() || '0');
-            return { 
-                ...m, ...item, ...m.customFields, moveId: m.id, itemIdx: i, 
-                displayDate: new Date(m.date).toLocaleDateString('en-GB'),
-                diffWeight: sw - pw
-            } as any;
-        })).filter((r: any) => 
-            smartNormalize(r.productName).includes(smartNormalize(searchTerm)) || 
-            smartNormalize(r.productCode).includes(smartNormalize(searchTerm)) ||
-            smartNormalize(r.jdeCode).includes(smartNormalize(searchTerm))
-        );
-
-        if (view === 'control_out') {
-            return flattened.sort((a: any, b: any) => {
-                const dateA = new Date(a.date).getTime();
-                const dateB = new Date(b.date).getTime();
-                if (dateB !== dateA) return dateB - dateA;
-                return a.productName.localeCompare(b.productName, 'ar');
-            });
-        }
-
-        return flattened.reverse();
-    }, [view, updateTrigger, searchTerm, isRawDailyDetail, selectedDate]);
-
-    const getCellStyle = (isNumeric: boolean = false): React.CSSProperties => ({
-        fontFamily: isNumeric ? 'Inter, sans-serif' : tableStyles.fontFamily,
-        fontSize: isNumeric ? '13px' : `12px`,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        verticalAlign: 'middle',
-        border: '1px solid #000',
-        padding: '6px',
-        ...(isNumeric ? forceEnNumsStyle : {})
-    });
-
-    if (isRawDailyDetail) {
-        const detailCols = [
-            "م", "اسم الصنف", "كمية البوليصة", "كمية المصنع", "الفرق", "رقم البوليصة", "المورد", "شركة النقل", 
-            "اسم السائق", "رقم السيارة", "رقم محضر الفحص", "القائم بالفحص", "نتيجة الفحص", "رقم كارتة الوزن", 
-            "الوردية", "أمين المخزن", "رقم الـ IT للبرنامج"
+    const handleExport = () => {
+        const headers = [
+            "م", "التاريخ", "رقم الإذن", "أمر التوريد", "رقم البوليصة", "المورد", "الصنف", 
+            "وزن البوليصة", "وزن الميزان", "الاضافة (الأقل)", "الفرق", "الحالة", 
+            "شركة النقل", "رقم السيارة", "السائق", "دخول", "خروج", "المدة", "الوردية", 
+            "الفحص", "الوزان", "أمين المخزن"
         ];
+        const data = tableData.map((r, i) => [
+            i + 1, r.displayDate, r.refNumber, r.supplyOrderNo, r.policyNo, r.supplier, r.productName,
+            r.policyWeight, r.quantity, r.additionQty || Math.min(r.quantity, parseFloat(r.policyWeight) || 0),
+            r.diffWeight, r.itemStatus, r.transportCompany, r.carNumber, r.driverName, 
+            r.entryTime, r.exitTime, r.duration, r.shift, r.inspectingOfficer, r.weighmasterName, r.storekeeper
+        ]);
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+        XLSX.utils.book_append_sheet(wb, ws, "RawInboundDetailed");
+        XLSX.writeFile(wb, `Raw_Inbound_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
 
-        return (
-            <div className="space-y-4 font-cairo animate-fade-in" dir="rtl">
-                <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm flex flex-wrap items-center justify-between gap-4 no-print">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-[#059669] text-white rounded-2xl shadow-lg"><FileSpreadsheet size={24}/></div>
-                        <div>
-                            <h2 className="text-xl font-black text-slate-800">{title}</h2>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">بيان تفصيلي بكافة الشاحنات الواردة لليوم المختار</p>
+    const tableRef = useRef<HTMLTableElement>(null);
+
+    const DropdownWithAdd = ({ label, field, listKey, icon }: any) => (
+        <Field label={label} icon={icon}>
+            <div className="flex gap-1">
+                <button 
+                  onClick={() => setInputModal({ isOpen: true, listKey, title: `إضافة ${label}` })}
+                  className="bg-blue-600 text-white w-8 h-9 rounded-lg flex items-center justify-center shadow-sm hover:bg-blue-700 transition-colors"
+                >
+                  <Plus size={14}/>
+                </button>
+                <select 
+                  className={`${inputClasses} flex-1`} 
+                  value={(formHeader as any)[field]} 
+                  onChange={e => setFormHeader({...formHeader, [field]: e.target.value})}
+                >
+                    <option value="">-- اختر --</option>
+                    {(settings[listKey] as string[] || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </div>
+        </Field>
+    );
+
+    return (
+        <div className="space-y-6 animate-fade-in font-cairo" dir="rtl">
+            <InputModal 
+                isOpen={inputModal.isOpen} 
+                onClose={() => setInputModal({ isOpen: false, listKey: null, title: '' })} 
+                onSave={(val) => inputModal.listKey && dbService.saveSettings({ ...settings, [inputModal.listKey]: [...(settings[inputModal.listKey] as string[] || []), val] })}
+                title={inputModal.title}
+            />
+
+            {isFormOpen && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-premium overflow-hidden no-print">
+                    <div className="bg-[#059669] px-6 py-2.5 text-white flex justify-between items-center shadow-md">
+                        <h3 className="text-[14px] font-black flex items-center gap-2">إدخال وارد خامات (مشتريات)</h3>
+                        <button onClick={() => setIsFormOpen(false)} className="bg-white/10 hover:bg-white/20 text-white px-4 py-1 rounded-lg font-black text-[12px] flex items-center gap-2 border border-white/30 transition-all active:scale-95">
+                            <X size={16}/> إغلاق
+                        </button>
+                    </div>
+                    
+                    <div className="p-6 space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <Field label="التاريخ" icon={<Calendar size={13}/>}><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
+                            <Field label="رقم أمر التوريد" icon={<Hash size={13}/>}><input className={inputClasses} value={formHeader.supplyOrderNo} onChange={e => setFormHeader({...formHeader, supplyOrderNo: e.target.value})}/></Field>
+                            <Field label="رقم البوليصة" icon={<FileText size={13}/>}><input className={inputClasses} value={formHeader.policyNo} onChange={e => setFormHeader({...formHeader, policyNo: e.target.value})}/></Field>
+                            <DropdownWithAdd label="نوع السيارة" field="carType" listKey="carTypes" icon={<Truck size={13}/>}/>
+                            <DropdownWithAdd label="أمين مخزن الخامات" field="storekeeper" listKey="storekeepersRaw" icon={<UserCog size={13}/>}/>
                         </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                            <DropdownWithAdd label="المورد" field="supplier" listKey="suppliers" icon={<Building2 size={13}/>}/>
+                            <Field label="كود المورد" icon={<Hash size={13}/>}><input className={`${inputClasses} bg-slate-50`} value={formHeader.supplierCode} readOnly /></Field>
+                            <DropdownWithAdd label="شركة النقل" field="transportCompany" listKey="rawTransportCompanies" icon={<Truck size={13}/>}/>
+                            <Field label="رقم السيارة" icon={<Hash size={13}/>}><input className={inputClasses} value={formHeader.carNumber} onChange={e => setFormHeader({...formHeader, carNumber: e.target.value})} style={forceEnNumsStyle}/></Field>
+                            <Field label="اسم السائق" icon={<User size={13}/>}><input className={inputClasses} value={formHeader.driverName} onChange={e => setFormHeader({...formHeader, driverName: e.target.value})}/></Field>
+                            <Field label="تليفون السائق" icon={<Phone size={13}/>}><input className={inputClasses} value={formHeader.driverPhone} onChange={e => setFormHeader({...formHeader, driverPhone: e.target.value})} style={forceEnNumsStyle}/></Field>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
+                            <Field label="وصول المصنع" icon={<Clock size={13}/>}><input type="time" className={inputClasses} value={formHeader.arrivalTime} onChange={e => setFormHeader({...formHeader, arrivalTime: e.target.value})} style={forceEnNumsStyle}/></Field>
+                            <Field label="ساعة الدخول" icon={<ArrowDownLeft size={13}/>}><input type="time" className={inputClasses} value={formHeader.entryTime} onChange={e => setFormHeader({...formHeader, entryTime: e.target.value})} style={forceEnNumsStyle}/></Field>
+                            <Field label="ساعة الخروج" icon={<ArrowUpRight size={13}/>}><input type="time" className={inputClasses} value={formHeader.exitTime} onChange={e => setFormHeader({...formHeader, exitTime: e.target.value})} style={forceEnNumsStyle}/></Field>
+                            <Field label="المدة" icon={<Timer size={13}/>}><input className={`${inputClasses} bg-blue-50 text-blue-700 text-center font-black border-blue-200`} value={calculatedDuration} readOnly style={forceEnNumsStyle}/></Field>
+                            <Field label="الوردية" icon={<History size={13}/>}><select className={inputClasses} value={formHeader.shift} onChange={e => setFormHeader({...formHeader, shift: e.target.value})}>{settings.shifts?.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
+                            <DropdownWithAdd label="القائم بالفحص" field="inspector" listKey="inspectors" icon={<UserCheck size={13}/>}/>
+                            <DropdownWithAdd label="الوزان" field="weighmasterName" listKey="weighmasters" icon={<Scale size={13}/>}/>
+                            <Field label="رقم الفحص" icon={<ClipboardSignature size={13}/>}><input className={inputClasses} value={formHeader.inspectionReportNo} onChange={e => setFormHeader({...formHeader, inspectionReportNo: e.target.value})}/></Field>
+                            <Field label="إجرائية" icon={<Settings size={13}/>}><input className={inputClasses} value={formHeader.procedure} onChange={e => setFormHeader({...formHeader, procedure: e.target.value})}/></Field>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t pt-4">
+                            <DynamicCustomFieldsRenderer target="raw_receive" formData={formHeader} setFormData={setFormHeader} />
+                        </div>
+                        
+                        <div className="bg-[#002060] p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 shadow-xl border-b-8 border-[#001a4d] relative z-20 mt-4">
+                            <div className="flex-1 relative w-full">
+                                <label className="text-[10px] font-black text-blue-200 mb-1 block mr-4 uppercase">ابحث عن صنف</label>
+                                <div className="relative">
+                                    <input className="w-full p-2.5 pr-10 rounded-lg border-none outline-none font-bold text-sm shadow-inner" placeholder="اسم الصنف، كود دريف أو JDE..." value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} />
+                                    <Search className="absolute right-4 top-2.5 text-slate-300" size={18}/>
+                                    {itemSearch && !selectedProduct && (
+                                        <div className="absolute top-full left-0 right-0 z-[1000] bg-white border border-blue-400 rounded-xl shadow-2xl mt-2 max-h-60 overflow-y-auto p-2">
+                                            {products.filter(p => p.warehouse === 'raw').filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch)) || smartNormalize(p.barcode).includes(smartNormalize(itemSearch))).map(p => (
+                                                <div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-3 hover:bg-blue-50 cursor-pointer border-b rounded-lg flex justify-between items-center transition-all group">
+                                                    <div className="flex flex-col"><span className="font-black text-slate-800 text-xs group-hover:text-blue-600 transition-colors">{p.name}</span><span className="text-[10px] text-slate-400">كود: {p.barcode}</span></div>
+                                                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black">رصيد: {p.stock}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="w-full md:w-32"><label className="text-[10px] font-black text-blue-200 mb-1 block text-center uppercase">وزن البوليصة</label><input type="number" className="w-full p-2.5 rounded-lg bg-blue-100/20 text-white font-black text-center outline-none border border-blue-400/50 shadow-inner" value={formHeader.policyWeight} onChange={e => setFormHeader({...formHeader, policyWeight: e.target.value})} style={forceEnNumsStyle}/></div>
+                            <div className="w-full md:w-32"><label className="text-[10px] font-black text-blue-200 mb-1 block text-center uppercase">وزن الميزان</label><input type="number" className="w-full p-2.5 rounded-lg bg-emerald-100/20 text-white font-black text-center outline-none border border-emerald-400/50 shadow-inner" value={formHeader.scaleWeight} onChange={e => setFormHeader({...formHeader, scaleWeight: e.target.value})} style={forceEnNumsStyle}/></div>
+                            <div className="w-full md:w-32"><label className="text-[10px] font-black text-blue-200 mb-1 block text-center uppercase">رقم الكارت</label><input className="w-full p-2.5 rounded-lg bg-white text-[#002060] font-black text-center outline-none border-none shadow-inner" value={formHeader.cardId} onChange={e => setFormHeader({...formHeader, cardId: e.target.value})}/></div>
+                            <div className="w-full md:w-40">
+                                <label className="text-[10px] font-black text-blue-200 mb-1 block text-center uppercase">حالة الصنف</label>
+                                <select className="w-full p-2.5 rounded-lg bg-[#f59e0b] text-white font-black text-center outline-none border-none cursor-pointer" value={formHeader.itemStatus} onChange={e => setFormHeader({...formHeader, itemStatus: e.target.value})}>
+                                    <option value="تحت الفحص">تحت الفحص</option>
+                                    <option value="مقبول">مقبول</option>
+                                    <option value="مرفوض">مرفوض</option>
+                                </select>
+                            </div>
+                            <button onClick={handleAddToDraft} className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-all mt-5 md:mt-4">
+                                <Plus size={36} strokeWidth={4}/>
+                            </button>
+                        </div>
+
+                        {draftItems.length > 0 && (
+                            <div className="space-y-4 pt-4 animate-fade-in">
+                                <div className="bg-[#111827] rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
+                                    <table className="w-full text-center text-[13px] border-collapse">
+                                        <thead className="bg-[#111827] text-slate-400 h-10 font-black uppercase">
+                                            <tr><th className="p-3 border-l border-slate-700 text-right pr-8 text-white">الصنف</th><th className="p-3 border-l border-slate-700">وزن البوليسة</th><th className="p-3 border-l border-slate-700">وزن الميزان</th><th className="p-3 border-l border-slate-700">الاضافة</th><th className="p-3 border-l border-slate-700">الفرق</th><th className="p-3">حذف</th></tr>
+                                        </thead>
+                                        <tbody className="font-bold bg-white text-slate-800 text-[12px]">
+                                            {draftItems.map((item, idx) => (
+                                                <tr key={idx} className="border-b h-12 hover:bg-slate-50 transition-colors">
+                                                    <td className="p-3 border-l text-right pr-8 font-black text-slate-900">{item.productName}</td>
+                                                    <td className="p-3 border-l" style={forceEnNumsStyle}>{item.policyWeight}</td>
+                                                    <td className="p-3 border-l text-blue-700 font-black text-lg" style={forceEnNumsStyle}>{item.quantity}</td>
+                                                    <td className="p-3 border-l text-emerald-800 font-black text-lg bg-emerald-50/30" style={forceEnNumsStyle}>{item.additionQty.toFixed(3)}</td>
+                                                    <td className={`p-3 border-l font-black ${item.diffWeight < 0 ? 'text-red-600' : 'text-emerald-600'}`} style={forceEnNumsStyle}>{item.diffWeight.toFixed(3)}</td>
+                                                    <td className="p-3"><button onClick={() => setDraftItems(draftItems.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all"><Trash2 size={18}/></button></td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button onClick={handleSave} className="w-full py-5 bg-[#059669] hover:bg-[#047857] text-white rounded-xl font-black text-2xl shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-[0.98] border-b-8 border-[#064e3b]"><Save size={32}/> ترحيل الوارد نهائياً</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+            
+            <div className="bg-white rounded-xl border border-slate-100 shadow-premium overflow-hidden mt-6">
+                <div className="bg-[#1e293b] p-6 flex flex-col md:flex-row justify-between items-center gap-4 text-white">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-white/10 rounded-2xl shadow-inner text-yellow-400"><History size={24}/></div>
+                        <div><h2 className="text-xl font-black">سجل وارد خامات (مشتريات)</h2></div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-                            <Calendar size={18} className="mx-2 text-slate-500"/>
-                            <input 
-                                type="date" 
-                                value={selectedDate} 
-                                onChange={e => setSelectedDate(e.target.value)} 
-                                className="p-1.5 bg-white rounded-lg font-black text-xs outline-none border border-slate-200"
-                                style={forceEnNumsStyle}
-                            />
-                        </div>
-                        <div className="relative"><input className="w-64 pr-10 pl-4 py-2 border border-slate-100 rounded-xl text-sm outline-none font-bold bg-slate-50 shadow-inner" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search className="absolute right-3 top-2.5 text-gray-300" size={18} /></div>
-                        <button onClick={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')} className="flex items-center gap-2 px-6 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-black text-xs shadow-sm hover:bg-slate-50 transition-all"><Printer size={18} className="text-blue-600"/> طباعة</button>
-                        <button onClick={handleExport} className="flex items-center gap-2 px-6 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-black text-xs shadow-sm hover:bg-slate-50 transition-all"><FileUp size={18} className="text-green-600"/> Excel</button>
+                        <div className="relative w-64"><input className="w-full pr-10 pl-4 py-2.5 rounded-xl text-slate-800 text-sm font-bold shadow-inner border-none bg-slate-50" placeholder="بحث سريع..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search className="absolute right-3 top-3 text-slate-300" size={18}/></div>
+                        <button onClick={handleExport} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg active:scale-95 border-b-4 border-emerald-800 transition-all"><FileUp size={18}/> تصدير Excel</button>
+                        {!isFormOpen && <button onClick={() => setIsFormOpen(true)} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg active:scale-95 border-b-4 border-blue-800 transition-all"><Plus size={18}/> إظهار الإدخال</button>}
                     </div>
                 </div>
-
-                <div className="bg-white rounded-xl shadow-premium border-2 border-black overflow-hidden relative z-0">
-                    <div className="overflow-x-auto max-h-[75vh]">
-                        <table className="w-full border-collapse min-w-[2500px]" ref={tableRef}>
-                            <thead className="sticky top-0 z-20 bg-[#b4c6e7] text-slate-900">
-                                <tr className="h-14 font-black text-[11px] uppercase tracking-tighter">
-                                    {detailCols.map((c, i) => (
-                                        <th key={i} className="p-3 border border-black" style={getCellStyle()}>
-                                            {c}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="text-[13px] font-bold text-slate-800">
-                                {tableData.map((row: any, idx) => (
-                                    <tr key={row.moveId} className={`border-b border-black h-12 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                                        <td className="p-2 border border-black" style={getCellStyle(true)}>{idx + 1}</td>
-                                        <td className="p-2 border border-black text-right pr-4 font-black" style={getCellStyle()}>{row.productName}</td>
-                                        <td className="p-2 border border-black bg-blue-50/20" style={getCellStyle(true)}>{formatVal(row.policyWeight)}</td>
-                                        <td className="p-2 border border-black bg-emerald-50/20 text-lg" style={getCellStyle(true)}>{formatVal(row.quantity)}</td>
-                                        <td className={`p-2 border border-black font-black ${row.diffWeight < 0 ? 'text-red-600' : 'text-emerald-700'}`} style={getCellStyle(true)}>{row.diffWeight.toFixed(3)}</td>
-                                        <td className="p-2 border border-black font-mono text-indigo-700" style={getCellStyle(true)}>{row.policyNo}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.supplier}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.transportCompany}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.driverName}</td>
-                                        <td className="p-2 border border-black font-mono" style={getCellStyle(true)}>{row.carNumber}</td>
-                                        <td className="p-2 border border-black font-mono" style={getCellStyle(true)}>{row.inspectionReportNo}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.inspector}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.itemStatus}</td>
-                                        <td className="p-2 border border-black font-mono" style={getCellStyle(true)}>{row.cardId}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.shift}</td>
-                                        <td className="p-2 border border-black" style={getCellStyle()}>{row.storekeeper}</td>
-                                        <td className="p-2 border border-black bg-slate-100 font-black" style={getCellStyle(true)}>{row.refNumber}</td>
+                <div className="overflow-x-auto max-h-[60vh] relative z-10">
+                    <table className="w-full border-collapse min-w-[3200px]" ref={tableRef}>
+                        <thead className="sticky top-0 z-20 bg-[#002060] text-yellow-300 font-black text-[10px] uppercase h-14 shadow-lg border-b border-slate-700">
+                            <tr>
+                                <th className="p-3 border-l border-slate-700 w-12">م</th>
+                                <th className="p-3 border-l border-slate-700">التاريخ</th>
+                                <th className="p-3 border-l border-slate-700">رقم الإذن</th>
+                                <th className="p-3 border-l border-slate-700">أمر التوريد</th>
+                                <th className="p-3 border-l border-slate-700">رقم البوليصة</th>
+                                <th className="p-3 border-l border-slate-700 text-right pr-4">المورد</th>
+                                <th className="p-3 border-l border-slate-700 text-right pr-4 min-w-[300px]">الصنف</th>
+                                <th className="p-3 border-l border-slate-700">وزن البوليصة</th>
+                                <th className="p-3 border-l border-slate-700">وزن الميزان</th>
+                                <th className="p-3 border-l border-slate-700 bg-emerald-900/40 text-white">الاضافة</th>
+                                <th className="p-3 border-l border-slate-700">الفرق</th>
+                                <th className="p-3 border-l border-slate-700">الحالة</th>
+                                <th className="p-3 border-l border-slate-700">شركة النقل</th>
+                                <th className="p-3 border-l border-slate-700">رقم السيارة</th>
+                                <th className="p-3 border-l border-slate-700">اسم السائق</th>
+                                <th className="p-3 border-l border-slate-700">وصول</th>
+                                <th className="p-3 border-l border-slate-700">دخول</th>
+                                <th className="p-3 border-l border-slate-700">خروج</th>
+                                <th className="p-3 border-l border-slate-700">المدة</th>
+                                <th className="p-3 border-l border-slate-700">الوردية</th>
+                                <th className="p-3 border-l border-slate-700">الفحص</th>
+                                <th className="p-3 border-l border-slate-700">الوزان</th>
+                                <th className="p-3 border-l border-slate-700">أمين المخزن</th>
+                                <th className="p-3">إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-[12px] font-bold text-slate-700 bg-white">
+                            {tableData.map((r, i) => {
+                                const addition = r.additionQty || Math.min(r.quantity, parseFloat(r.policyWeight) || 0);
+                                return (
+                                    <tr key={`${r.moveId}-${i}`} className={`border-b h-14 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50 transition-colors`}>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{i + 1}</td>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{r.displayDate}</td>
+                                        <td className="p-2 border-l font-mono text-indigo-700 font-black" style={forceEnNumsStyle}>{r.refNumber}</td>
+                                        <td className="p-2 border-l font-mono" style={forceEnNumsStyle}>{r.supplyOrderNo || '-'}</td>
+                                        <td className="p-2 border-l font-mono" style={forceEnNumsStyle}>{r.policyNo || '-'}</td>
+                                        <td className="p-2 border-l text-right pr-4 font-bold">{r.supplier}</td>
+                                        <td className="p-2 border-l text-right pr-6 font-black text-slate-900">{r.productName}</td>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{parseFloat(r.policyWeight || 0).toFixed(3)}</td>
+                                        <td className="p-2 border-l text-blue-700 font-bold" style={forceEnNumsStyle}>{r.quantity.toFixed(3)}</td>
+                                        <td className="p-2 border-l bg-emerald-50 text-emerald-800 font-black text-md" style={forceEnNumsStyle}>{addition.toFixed(3)}</td>
+                                        <td className={`p-2 border-l font-black ${r.diffWeight < 0 ? 'text-red-600' : 'text-emerald-600'}`} style={forceEnNumsStyle}>{r.diffWeight?.toFixed(3) || '-'}</td>
+                                        <td className="p-2 border-l"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.itemStatus === 'مرفوض' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{r.itemStatus || 'تحت الفحص'}</span></td>
+                                        <td className="p-2 border-l text-xs">{r.transportCompany || '-'}</td>
+                                        <td className="p-2 border-l font-mono" style={forceEnNumsStyle}>{r.carNumber}</td>
+                                        <td className="p-2 border-l">{r.driverName}</td>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{r.arrivalTime || '-'}</td>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{r.entryTime || '-'}</td>
+                                        <td className="p-2 border-l" style={forceEnNumsStyle}>{r.exitTime || '-'}</td>
+                                        <td className="p-2 border-l font-black text-blue-600" style={forceEnNumsStyle}>{r.duration || '-'}</td>
+                                        <td className="p-2 border-l text-[10px]">{r.shift}</td>
+                                        <td className="p-2 border-l text-[10px]">{r.inspectingOfficer || r.inspector || '-'}</td>
+                                        <td className="p-2 border-l text-[10px]">{r.weighmasterName || '-'}</td>
+                                        <td className="p-2 border-l">{r.storekeeper}</td>
+                                        <td className="p-2 text-center">
+                                            <button onClick={() => { if(window.confirm('حذف؟')) { dbService.deleteMovement(r.moveId); refreshProducts(); setUpdateTrigger(p => p + 1); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all active:scale-90"><Trash2 size={20}/></button>
+                                        </td>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
             </div>
-        );
-    }
+        </div>
+    );
+};
 
-    if (isControlOut) {
-        return (
-            <div className="space-y-6 font-cairo animate-fade-in" dir="rtl">
-                {isFormOpen && (
-                    <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-visible no-print animate-fade-in">
-                        <div className="p-8 space-y-8">
-                            <div className="flex justify-between items-center px-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="bg-violet-50 p-4 rounded-3xl text-violet-600 shadow-sm border border-violet-100">
-                                        <ClipboardPaste size={32}/>
-                                    </div>
-                                    <div>
-                                        <h2 className="text-3xl font-black text-slate-800">صرف الكنترول (إدخال مجمع أو يدوي)</h2>
-                                        <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">قم بالصرف اليدوي لصنف واحد أو لصق صفوف الإكسيل للمجمع</p>
-                                    </div>
-                                </div>
-                                <button onClick={() => setIsFormOpen(false)} className="bg-[#e11d48] hover:bg-[#be123c] text-white px-6 py-3 rounded-2xl font-black text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 border-b-4 border-[#9f1239]">
-                                    <EyeOff size={18}/> إخفاء النافذة
-                                </button>
-                            </div>
+/**
+ * 2. صرف كنترول - Control Center Issues
+ */
+const ControlOutView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
+    const { settings, products, user, refreshProducts, addNotification } = useApp();
+    const [isFormOpen, setIsFormOpen] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [pastedItems, setPastedItems] = useState<any[]>([]);
+    const [updateTrigger, setUpdateTrigger] = useState(0);
 
-                            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6 px-4">
-                                <Field label="التاريخ" icon={<Calendar size={14}/>}><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
-                                <Field label="الوردية" icon={<Clock size={14}/>}><select className={inputClasses} value={formHeader.shift} onChange={e => setFormHeader({...formHeader, shift: e.target.value})}><option value="الأولى">الأولى</option><option value="الثانية">الثانية</option><option value="الثالثة">الثالثة</option></select></Field>
-                                <Field label="أمين المخزن" icon={<UserCog size={14}/>}><select className={inputClasses} value={formHeader.storekeeper} onChange={e => setFormHeader({...formHeader, storekeeper: e.target.value})}><option value="System Admin">System Admin</option>{settings.storekeepersRaw?.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
-                                <Field label="ملاحظات" icon={<FileText size={14}/>}><input className={inputClasses} value={formHeader.notes} onChange={e => setFormHeader({...formHeader, notes: e.target.value})} placeholder="..."/></Field>
-                            </div>
+    const INITIAL_HEADER = { 
+        date: new Date().toISOString().split('T')[0], 
+        shift: 'الأولى', 
+        storekeeper: user?.name || 'System Admin', 
+        notes: '', 
+        fattening: '', 
+        fish: '', 
+        duck: '', 
+        pets: '', 
+        refNumber: '',
+        customFields: {}
+    };
 
-                            <div className="bg-slate-900 rounded-[2.5rem] p-6 flex flex-col lg:flex-row items-end gap-4 shadow-2xl relative z-10 mx-4">
-                                <div className="flex-1 relative w-full">
-                                    <label className="text-[11px] font-black text-slate-400 mb-2 block uppercase tracking-wider">البحث عن الصنف</label>
-                                    <div className="relative">
-                                        <input className="w-full p-3.5 pr-12 rounded-2xl border-none bg-white outline-none font-black text-md shadow-inner" placeholder="بحث صنف تشغيل..." value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} />
-                                        <Search className="absolute right-4 top-3.5 text-slate-300" size={24}/>
-                                        {itemSearch && !selectedProduct && (
-                                            <div className="absolute top-full left-0 right-0 z-[2000] bg-white border-2 border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto p-2">
-                                                {products.filter(p => p.warehouse === 'raw' || ['خامات', 'خامات اساسية', 'اضافات'].includes(p.category)).filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch)) || p.barcode.includes(itemSearch)).map(p => (
-                                                    <div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-4 hover:bg-slate-50 cursor-pointer border-b last:border-0 rounded-xl flex justify-between items-center transition-all group">
-                                                        <div className="flex flex-col"><span className="font-black text-slate-800">{p.name}</span><span className="text-[10px] text-slate-400 font-bold">كود: {p.barcode}</span></div>
-                                                        <span className="bg-violet-100 text-violet-700 px-4 py-1 rounded-full text-[11px] font-black">رصيد الصومعة: {p.stockPacked || 0}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="w-24 text-center">
-                                    <label className="text-[9px] font-black text-blue-300 mb-1 block uppercase">تسمين</label>
-                                    <input type="number" className="w-full p-3 rounded-xl border-none bg-white text-center font-black text-sm shadow-inner" value={formHeader.fattening} onChange={e => setFormHeader({...formHeader, fattening: e.target.value})} placeholder="0" style={forceEnNumsStyle}/>
-                                </div>
-                                <div className="w-24 text-center">
-                                    <label className="text-[9px] font-black text-blue-300 mb-1 block uppercase">سمك</label>
-                                    <input type="number" className="w-full p-3 rounded-xl border-none bg-white text-center font-black text-sm shadow-inner" value={formHeader.fish} onChange={e => setFormHeader({...formHeader, fish: e.target.value})} placeholder="0" style={forceEnNumsStyle}/>
-                                </div>
-                                <div className="w-24 text-center">
-                                    <label className="text-[9px] font-black text-blue-300 mb-1 block uppercase">بط</label>
-                                    <input type="number" className="w-full p-3 rounded-xl border-none bg-white text-center font-black text-sm shadow-inner" value={formHeader.duck} onChange={e => setFormHeader({...formHeader, duck: e.target.value})} placeholder="0" style={forceEnNumsStyle}/>
-                                </div>
-                                <div className="w-24 text-center">
-                                    <label className="text-[9px] font-black text-blue-300 mb-1 block uppercase">أليفة</label>
-                                    <input type="number" className="w-full p-3 rounded-xl border-none bg-white text-center font-black text-sm shadow-inner" value={formHeader.pets} onChange={e => setFormHeader({...formHeader, pets: e.target.value})} placeholder="0" style={forceEnNumsStyle}/>
-                                </div>
-                                <button onClick={handleQuickAddAndSave} className="bg-violet-600 hover:bg-violet-700 text-white p-4 rounded-2xl shadow-xl transition-all active:scale-90 border-b-4 border-violet-900 shrink-0 flex items-center gap-3 font-black text-lg h-[54px]"><Plus size={24}/> تسجيل</button>
-                            </div>
+    const [formHeader, setFormHeader] = useState<any>(INITIAL_HEADER);
+    const [itemSearch, setItemSearch] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
 
-                            <div className="text-center py-4 text-slate-300 font-bold border-y border-slate-100 mx-4">--- أو اللصق المجمع من إكسيل أدناه ---</div>
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const text = e.clipboardData.getData('text');
+        if (!text) return;
+        const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+        const items = lines.map(line => {
+            const cols = line.split('\t');
+            if (cols.length < 5) return null;
+            const name = cols[3]?.trim();
+            const product = products.find(p => smartNormalize(p.name) === smartNormalize(name) || p.barcode === cols[1]?.trim());
+            const f = parseFloat(cols[5]) || 0; const s = parseFloat(cols[6]) || 0; const d = parseFloat(cols[7]) || 0; const p = parseFloat(cols[8]) || 0;
+            const total = f + s + d + p;
+            return {
+                date: cols[0], code: product?.barcode || cols[1], name: product?.name || name,
+                fattening: f, fish: s, duck: d, pets: p, total, isValid: !!product, productId: product?.id, currentStock: product?.stockPacked || 0
+            };
+        }).filter(Boolean);
+        setPastedItems(items);
+    };
 
-                            <div className="px-4">
-                                <div className="bg-violet-50/50 rounded-[2rem] border-4 border-dashed border-violet-100 p-8 text-center transition-all hover:bg-violet-50 group relative">
-                                    <textarea 
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                                        onPaste={handlePasteControl}
-                                        placeholder="الصق هنا..."
-                                    />
-                                    <div className="flex flex-col items-center gap-4 pointer-events-none group-hover:scale-105 transition-transform">
-                                        <div className="p-6 bg-white rounded-full shadow-xl text-violet-600">
-                                            <ClipboardPaste size={48} strokeWidth={1.5} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-xl font-black text-violet-900 font-cairo">اضغط هنا ثم قم باللصق (Ctrl + V)</h4>
-                                            <p className="text-xs text-slate-400 font-bold mt-1">الترتيب المطلوب للأعمدة: [التاريخ] [كود دريف] [كود JDE] [الاسم] [الوحدة] [تسمين] [سمك] [بط] [أليفة]</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+    const handleBatchPost = () => {
+        if (pastedItems.length === 0) return;
+        
+        pastedItems.forEach(item => {
+            if (!item.isValid) return;
+            const move: StockMovement = {
+                id: (Date.now() + Math.random()).toString(), 
+                date: new Date(item.date).toISOString(),
+                type: 'out', warehouse: 'raw', refNumber: dbService.getNextId('issueVoucher'),
+                user: user?.name || 'Admin', 
+                items: [{ productId: item.productId, productName: item.name, quantity: item.total, quantityPacked: item.total, unit: 'طن' }],
+                reason: 'صرف كنترول مجمع',
+                customFields: { ...formHeader, ...formHeader.customFields, viewContext: 'control_out', fattening: item.fattening, fish: item.fish, duck: item.duck, pets: item.pets, moveMode: 'out' }
+            };
+            dbService.saveMovement(move);
+        });
+        
+        refreshProducts(); 
+        setPastedItems([]); 
+        setUpdateTrigger(prev => prev + 1);
+        addNotification('تم ترحيل كافة البيانات بنجاح', 'success');
+    };
 
-                            {pastedItems.length > 0 && (
-                                <div className="px-4 animate-bounce-in">
-                                    <div className="bg-white rounded-3xl border-2 border-slate-100 shadow-xl overflow-hidden">
-                                        <div className="bg-slate-900 px-6 py-4 text-white flex justify-between items-center font-black text-sm">
-                                            <span>معاينة البيانات المحللة قبل الترحيل</span>
-                                            <span className="bg-violet-600 px-4 py-1 rounded-full text-xs" style={forceEnNumsStyle}>{pastedItems.length} حركة جاهزة</span>
-                                        </div>
-                                        <div className="max-h-[350px] overflow-y-auto">
-                                            <table className="w-full text-center border-collapse">
-                                                <thead className="bg-[#002060] text-yellow-300 font-black text-[11px] h-10 border-b sticky top-0 z-10">
-                                                    <tr>
-                                                        <th>التاريخ</th><th>كود دريف</th><th>كود JDE</th><th>اسم الصنف</th><th>الوحدة</th><th>تسمين</th><th>سمك</th><th>بط</th><th>أليفة</th><th>الإجمالي</th><th>رصيد الصوامع بعد الخصم</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="text-xs font-bold text-slate-700">
-                                                    {pastedItems.map((item, idx) => (
-                                                        <tr key={idx} className={`border-b h-11 transition-colors ${item.isValid ? 'hover:bg-violet-50' : 'bg-red-50'}`}>
-                                                            <td style={forceEnNumsStyle}>{item.date}</td>
-                                                            <td className="font-mono text-indigo-700" style={forceEnNumsStyle}>{item.itemCode}</td>
-                                                            <td className="font-mono text-slate-400" style={forceEnNumsStyle}>{item.jdeCode}</td>
-                                                            <td className="text-right pr-6 font-black">{item.productName}</td>
-                                                            <td>{item.unit}</td>
-                                                            <td style={forceEnNumsStyle}>{item.fattening}</td>
-                                                            <td style={forceEnNumsStyle}>{item.fish}</td>
-                                                            <td style={forceEnNumsStyle}>{item.duck}</td>
-                                                            <td style={forceEnNumsStyle}>{item.pets}</td>
-                                                            <td className="text-violet-700 text-lg font-black" style={forceEnNumsStyle}>{item.total.toFixed(3)}</td>
-                                                            <td className={`font-black ${item.balanceAfter < 0 ? 'text-rose-600' : 'text-emerald-600'}`} style={forceEnNumsStyle}>
-                                                                {item.isValid ? item.balanceAfter.toFixed(3) : 
-                                                                    <span className="text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full flex items-center gap-1 justify-center"><AlertTriangle size={12}/> خطأ تعريف</span>
-                                                                }
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div className="p-4 bg-slate-50 border-t flex gap-4">
-                                            <button onClick={handlePostBatchControl} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white py-4 rounded-2xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all active:scale-95 border-b-4 border-violet-900">
-                                                <Send size={24}/> ترحيل البيانات للسجلات وتحديث الأرصدة
-                                            </button>
-                                            <button onClick={() => setParsedItems([])} className="px-8 bg-white border border-slate-200 text-slate-500 rounded-2xl font-bold hover:bg-slate-50 transition-all">إلغاء الكل</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
+    const handleQuickAdd = () => {
+        if (!selectedProduct) return alert('اختر صنفاً');
+        const f = parseFloat(formHeader.fattening) || 0; const s = parseFloat(formHeader.fish) || 0; const d = parseFloat(formHeader.duck) || 0; const p = parseFloat(formHeader.pets) || 0;
+        const total = f+s+d+p;
+        if (total <= 0) return alert('ادخل كمية صحيحة');
 
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden mt-6 animate-fade-in">
-                    <div className="bg-white p-6 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4 no-print"><div className="flex items-center gap-4"><div className="p-4 bg-slate-900 text-white rounded-3xl shadow-xl"><History size={24}/></div><div><h2 className="text-xl font-black text-slate-800">سجل الكنترول التاريخي</h2><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">عرض وتعديل حركات صرف التشغيل</p></div></div><div className="flex items-center gap-3"><div className="relative"><input className="w-64 pr-10 pl-4 py-2 border border-slate-100 rounded-xl text-sm outline-none font-bold bg-slate-50 shadow-inner" placeholder="بحث سريع..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search className="absolute right-3 top-2.5 text-gray-300" size={18} /></div><button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-xs shadow-sm hover:bg-slate-50 transition-all"><FileUp size={16} className="text-green-600"/> تصدير Excel</button>{!isFormOpen && ( <button onClick={() => setIsFormOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg transition-all active:scale-95 border-b-4 border-emerald-800"><PlusCircle size={18}/> إظهار نافذة الإدخال</button>)}</div></div><div className="overflow-x-auto max-h-[60vh] relative z-0"><table className="w-full border-collapse min-w-[2000px]" ref={tableRef}><thead className="sticky top-0 z-20 bg-[#002060] text-yellow-300 font-black text-[11px] uppercase border-b"><tr><th className="p-4 border border-black w-12 text-center">م</th><th className="p-4 border border-black text-center">التاريخ</th><th className="p-4 border border-black text-center">كود دريف</th><th className="p-4 border border-black text-center">كود JDE</th><th className="p-4 border border-black text-right pr-6 min-w-[250px]">اسم الصنف</th><th className="p-4 border border-black text-center">الوحدة</th><th className="p-4 border border-black text-center bg-blue-900/40">تسمين</th><th className="p-4 border border-black text-center bg-emerald-900/40">سمك</th><th className="p-4 border border-black text-center bg-amber-900/40">بط</th><th className="p-4 border border-black text-center bg-rose-900/40">أليفة</th><th className="p-4 border border-black text-center bg-violet-900/40 text-white font-black">الإجمالي</th><th className="p-4 border border-black text-center bg-emerald-900/20 text-slate-900 font-black">رصيد الصوامع بعد الخصم</th><th className="p-4 border border-black text-center">إجراءات</th></tr></thead><tbody className="text-[13px] font-bold text-slate-700 bg-white">{tableData.map((row: any, idx) => {const totalQty = (Number(row.fattening || 0) + Number(row.fish || 0) + Number(row.duck || 0) + Number(row.pets || 0));return (<tr key={row.moveId} className={`border-b border-black h-14 hover:bg-violet-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}><td className="p-2 border border-black text-center" style={forceEnNumsStyle}>{idx + 1}</td><td className="p-2 border border-black text-center" style={forceEnNumsStyle}>{row.displayDate}</td><td className="p-2 border border-black text-center font-mono text-indigo-700" style={forceEnNumsStyle}>{row.productCode}</td><td className="p-2 border border-black text-center font-mono text-slate-400" style={forceEnNumsStyle}>{row.jdeCode}</td><td className="p-2 border border-black text-right pr-6 font-black text-slate-900">{row.productName}</td><td className="p-2 border border-black text-center text-slate-400 font-bold">{row.unit}</td><td className="p-2 border border-black text-center">{editingMoveId === row.moveId ? <input type="number" className="w-20 p-1 border rounded text-center" value={editForm.fattening} onChange={e => setEditForm({...editForm, fattening: e.target.value})} style={forceEnNumsStyle}/> : formatVal(row.fattening)}</td><td className="p-2 border border-black text-center">{editingMoveId === row.moveId ? <input type="number" className="w-20 p-1 border rounded text-center" value={editForm.fish} onChange={e => setEditForm({...editForm, fish: e.target.value})} style={forceEnNumsStyle}/> : formatVal(row.fish)}</td><td className="p-2 border border-black text-center">{editingMoveId === row.moveId ? <input type="number" className="w-20 p-1 border rounded text-center" value={editForm.duck} onChange={e => setEditForm({...editForm, duck: e.target.value})} style={forceEnNumsStyle}/> : formatVal(row.duck)}</td><td className="p-2 border border-black text-center">{editingMoveId === row.moveId ? <input type="number" className="w-20 p-1 border rounded text-center" value={editForm.pets} onChange={e => setEditForm({...editForm, pets: e.target.value})} style={forceEnNumsStyle}/> : formatVal(row.pets)}</td><td className="p-2 border border-black text-center text-lg font-black text-violet-800 bg-violet-50/50" style={forceEnNumsStyle}>{totalQty.toFixed(tableStyles.decimals)}</td><td className="p-2 border border-black text-center font-black text-slate-600 bg-emerald-50/10" style={forceEnNumsStyle}>{(row.siloBalanceAtMove || 0).toFixed(tableStyles.decimals)}</td><td className="p-2 border border-black text-center"><div className="flex items-center justify-center gap-2">{editingMoveId === row.moveId ? (<button onClick={saveEditControl} className="text-emerald-600 hover:bg-emerald-50 p-2 rounded-full shadow-sm border border-emerald-100 transition-all"><Check size={20}/></button>) : (<button onClick={() => startEditControl(row)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full transition-all"><Edit2 size={18}/></button>)}<button onClick={() => { if(window.confirm('حذف هذه الحركة نهائياً؟')) { dbService.deleteMovement(row.moveId); setUpdateTrigger(p => p+1); refreshProducts(); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all"><Trash2 size={18}/></button></div></td></tr>);})}</tbody></table></div></div>
-            </div>
-        );
-    }
+        const move: StockMovement = {
+            id: Date.now().toString(), 
+            date: new Date(formHeader.date).toISOString(), 
+            type: 'out', warehouse: 'raw', 
+            refNumber: formHeader.refNumber || dbService.getNextId('issueVoucher'), 
+            user: user?.name || 'Admin',
+            items: [{ productId: selectedProduct.id, productName: selectedProduct.name, quantity: total, quantityPacked: total, unit: selectedProduct.unit || 'طن' }],
+            reason: 'صرف كنترول يدوي',
+            customFields: { ...formHeader, ...formHeader.customFields, viewContext: 'control_out', moveMode: 'out' }
+        };
+        
+        dbService.saveMovement(move); 
+        refreshProducts(); 
+        setSelectedProduct(null); 
+        setItemSearch('');
+        setFormHeader({...INITIAL_HEADER, refNumber: dbService.peekNextId('issueVoucher') }); 
+        setUpdateTrigger(prev => prev + 1);
+        addNotification('تم تسجيل الحركة بنجاح وتصفير الحقول', 'success');
+    };
 
-    if (isSimplifiedOut) {
-        let headerColorClass = 'bg-orange-50';
-        let iconColorClass = 'text-orange-600';
-        let borderColorClass = 'border-orange-100';
-        let actionBtnColorClass = 'bg-orange-600';
-        let actionBtnHoverClass = 'hover:bg-orange-700';
-        let actionBtnBorderClass = 'border-orange-900';
-        let qtyTextColorClass = 'text-orange-600';
-        let rowHoverClass = 'hover:bg-orange-50';
-        let colHeaderBgClass = 'bg-orange-900/40';
-        let mainHeaderBgClass = 'bg-orange-900';
-        let actionIcon = <LogOut size={32}/>;
+    const tableData: any[] = useMemo(() => {
+        return dbService.getMovements()
+            .filter(m => m.customFields?.viewContext === 'control_out')
+            .flatMap(m => m.items.map(it => ({ 
+                ...m, 
+                ...it, 
+                ...m.customFields, 
+                moveId: m.id, 
+                displayDate: new Date(m.date).toLocaleDateString('en-GB') 
+            })))
+            .filter(r => smartNormalize(r.productName).includes(smartNormalize(searchTerm)))
+            .reverse();
+    }, [searchTerm, updateTrigger]);
 
-        if (view === 'wh_transfer') {
-            headerColorClass = 'bg-indigo-50'; iconColorClass = 'text-indigo-600'; borderColorClass = 'border-indigo-100'; actionBtnColorClass = 'bg-indigo-600'; actionBtnHoverClass = 'hover:bg-indigo-700'; actionBtnBorderClass = 'border-indigo-900'; qtyTextColorClass = 'text-indigo-600'; rowHoverClass = 'hover:bg-indigo-50'; colHeaderBgClass = 'bg-indigo-900/40'; mainHeaderBgClass = 'bg-indigo-900'; actionIcon = <ArrowRightLeft size={32}/>;
-        } else if (view === 'raw_sale') {
-            headerColorClass = 'bg-blue-50'; iconColorClass = 'text-blue-600'; borderColorClass = 'border-blue-100'; actionBtnColorClass = 'bg-blue-600'; actionBtnHoverClass = 'hover:bg-blue-700'; actionBtnBorderClass = 'border-blue-900'; qtyTextColorClass = 'text-blue-600'; rowHoverClass = 'hover:bg-blue-50'; colHeaderBgClass = 'bg-indigo-900/40'; mainHeaderBgClass = 'bg-indigo-900'; actionIcon = <ShoppingCart size={32}/>;
-        }
+    const handleExport = () => {
+        const headers = ["م", "التاريخ", "رقم الإذن", "الصنف", "تسمين", "سمك", "بط", "أليفة", "الإجمالي", "الوردية", "أمين المخزن"];
+        const data = tableData.map((r, i) => [
+            i + 1, r.displayDate, r.refNumber, r.productName, r.fattening, r.fish, r.duck, r.pets, r.quantity, r.shift, r.storekeeper
+        ]);
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+        XLSX.utils.book_append_sheet(wb, ws, "ControlOut");
+        XLSX.writeFile(wb, `Control_Issue_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
 
-        return (
-            <div className="space-y-6 font-cairo animate-fade-in" dir="rtl">
-                {isFormOpen && (
-                    <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-visible no-print animate-fade-in">
-                        <div className="p-8 space-y-8">
-                            <div className="flex justify-between items-center px-4"><div className="flex items-center gap-4"><div className={`${headerColorClass} p-4 rounded-3xl ${iconColorClass} shadow-sm border ${borderColorClass}`}>{actionIcon}</div><div><h2 className="text-3xl font-black text-slate-800">{title}</h2><p className="text-sm text-slate-400 font-bold uppercase tracking-widest">نموذج إدخال مبسط للخصم المباشر من المخزون</p></div></div><button onClick={() => setIsFormOpen(false)} className="bg-[#e11d48] hover:bg-[#be123c] text-white px-6 py-3 rounded-2xl font-black text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 border-b-4 border-[#9f1239]"><EyeOff size={18}/> إخفاء النافذة</button></div>
-                            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6 px-4">
-                                <Field label="التاريخ" icon={<Calendar size={14}/>}><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
-                                <Field label="المخزن التابع / الوجهة" icon={<Warehouse size={14}/>}><select className={inputClasses} value={formHeader.targetWarehouse} onChange={e => setFormHeader({...formHeader, targetWarehouse: e.target.value})}><option value="">-- اختر المخزن --</option>{availableWarehouses.map(wh => <option key={wh} value={wh}>{wh}</option>)}</select></Field>
-                                <Field label="الوردية" icon={<Clock size={14}/>}><select className={inputClasses} value={formHeader.shift} onChange={e => setFormHeader({...formHeader, shift: e.target.value})}><option value="الأولى">الأولى</option><option value="الثانية">الثانية</option><option value="الثالثة">الثالثة</option></select></Field>
-                                <Field label="أمين المخزن" icon={<UserCog size={14}/>}><select className={inputClasses} value={formHeader.storekeeper} onChange={e => setFormHeader({...formHeader, storekeeper: e.target.value})}><option value="System Admin">System Admin</option>{settings.storekeepersRaw?.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
-                                <Field label="اسم المستلم / البيان" icon={<UserCheck size={14}/>}><input className={inputClasses} value={formHeader.recipientName} onChange={e => setFormHeader({...formHeader, recipientName: e.target.value})} placeholder="بيانات الطرف الآخر..."/></Field>
-                                <Field label="تاريخ الصلاحية" icon={<ShieldCheck size={14}/>}><input type="date" className={inputClasses} value={formHeader.expiryDate} onChange={e => setFormHeader({...formHeader, expiryDate: e.target.value})} style={forceEnNumsStyle}/></Field>
-                            </div>
-                            <div className="bg-slate-900 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-end gap-6 shadow-2xl relative z-10 mx-4">
-                                <div className="flex-1 relative w-full"><label className="text-[11px] font-black text-slate-400 mb-2 block uppercase tracking-wider">البحث عن الصنف وإضافته</label><div className="relative"><input className="w-full p-4 pr-12 rounded-2xl border-none bg-white outline-none font-black text-md shadow-inner" placeholder="ابحث باسم الصنف أو كود دريف..." value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} /><Search className="absolute right-4 top-4 text-slate-300" size={24}/>{itemSearch && !selectedProduct && (<div className="absolute top-full left-0 right-0 z-[2000] bg-white border-2 border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-72 overflow-y-auto p-2">{products.filter(p => p.warehouse === 'raw' || ['خامات', 'خامات اساسية', 'اضافات', 'شكاير', 'كروت', 'مستلزمات'].includes(p.category)).filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch)) || p.barcode.includes(itemSearch)).map(p => (<div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-4 hover:bg-slate-50 cursor-pointer border-b last:border-0 rounded-xl flex justify-between items-center transition-all group"><div className="flex flex-col"><span className="font-black text-slate-800">{p.name}</span><span className="text-[10px] text-slate-400 font-bold">كود: {p.barcode} | JDE: {p.jdeCode || '-'}</span></div><span className="bg-slate-100 text-slate-700 px-4 py-1 rounded-full text-[11px] font-black">رصيد: {p.stock}</span></div>))}</div>)}</div></div>
-                                <div className="w-full md:w-48"><label className="text-[10px] font-black text-slate-400 mb-2 block text-center uppercase">الكمية</label><input type="number" className={`w-full p-4 rounded-2xl border-none bg-white text-center font-black text-2xl ${qtyTextColorClass} shadow-inner`} value={qty} onChange={e => setQty(e.target.value)} placeholder="0.000" style={forceEnNumsStyle}/></div>
-                                <button onClick={handleQuickAddAndSave} className={`${actionBtnColorClass} ${actionBtnHoverClass} text-white p-4 rounded-2xl shadow-xl transition-all active:scale-90 border-b-4 ${actionBtnBorderClass} shrink-0 flex items-center gap-3 font-black text-xl`}><Plus size={32} strokeWidth={3}/> تسجيل الحركة</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden mt-6 animate-fade-in"><div className="bg-white p-6 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4 no-print"><div className="flex items-center gap-4"><div className="p-4 bg-slate-900 text-white rounded-3xl shadow-xl"><History size={24}/></div><div><h2 className="text-xl font-black text-slate-800">السجل التاريخي</h2><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">عرض الحركات المسجلة مؤخراً</p></div></div><div className="flex items-center gap-3"><div className="relative"><input className="w-64 pr-10 pl-4 py-2 border border-slate-100 rounded-xl text-sm outline-none font-bold bg-slate-50 shadow-inner" placeholder="بحث سريع..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search className="absolute right-3 top-2.5 text-gray-300" size={18} /></div><button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-xs shadow-sm hover:bg-slate-50 transition-all"><FileUp size={16} className="text-green-600"/> تصدير Excel</button>{!isFormOpen && ( <button onClick={() => setIsFormOpen(true)} className={`${actionBtnColorClass} ${actionBtnHoverClass} text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg transition-all active:scale-95 border-b-4 border-actionBtnBorderClass`}><Plus size={18}/> إظهار نافذة الإدخال</button>)}</div></div><div className="overflow-x-auto max-h-[60vh] relative z-0"><table className="w-full border-collapse min-w-[2000px]" ref={tableRef}><thead className={`sticky top-0 z-20 ${mainHeaderBgClass} text-white font-black text-[11px] uppercase border-b`}><tr><th className="p-4 border-l border-slate-700 w-12 text-center">م</th><th className="p-4 border-l border-slate-700 text-center">التاريخ</th><th className="p-4 border-l border-slate-700 text-center">رقم الإذن</th><th className="p-4 border-l border-slate-700 text-center">كود الدرايف</th><th className="p-4 border-l border-slate-700 text-center">كود jd</th><th className="p-4 border-l border-slate-700 text-right pr-6 min-w-[250px]">اسم الصنف</th><th className="p-4 border-l border-slate-700 text-center">الوحدة</th><th className={`p-4 border-l border-slate-700 text-center ${colHeaderBgClass}`}>الكمية</th><th className="p-4 border-l border-slate-700 text-center">الوجهة</th><th className="p-4 border-l border-slate-700 text-center">الوردية</th><th className="p-4 border-l border-slate-700 text-center">أمين المخزن</th><th className="p-4 border-l border-slate-700 text-center">المستلم / البيان</th><th className="p-4 border-l border-slate-700 text-center bg-blue-900/40">الرصيد اللحظي</th><th className="p-4 text-center">إجراء</th></tr></thead><tbody className="text-[13px] font-bold text-slate-700 bg-white">{tableData.map((row: any, idx) => (<tr key={row.moveId} className={`border-b h-14 ${rowHoverClass} transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}><td className="p-2 border-l text-center" style={forceEnNumsStyle}>{idx + 1}</td><td className="p-2 border-l text-center" style={forceEnNumsStyle}>{row.displayDate}</td><td className="p-2 border-l text-center font-mono text-indigo-700" style={forceEnNumsStyle}>{row.refNumber}</td><td className="p-2 border-l text-center font-mono text-slate-400" style={forceEnNumsStyle}>{row.productCode}</td><td className="p-2 border-l text-center font-mono text-slate-400" style={forceEnNumsStyle}>{row.jdeCode}</td><td className="p-2 border-l text-right pr-6 font-black text-slate-900">{row.productName}</td><td className="p-2 border-l text-center text-slate-400 font-bold">{row.unit}</td><td className={`p-2 border-l text-center text-xl font-black ${qtyTextColorClass}`} style={forceEnNumsStyle}>{row.quantity.toFixed(3)}</td><td className="p-2 border-l text-center">{row.targetWarehouse || '-'}</td><td className="p-2 border-l text-center">{row.shift || '-'}</td><td className="p-2 border-l text-center">{row.storekeeper || row.user}</td><td className="p-2 border-l text-center">{row.recipientName || row.reason || '-'}</td><td className="p-2 border-l text-center font-black text-blue-900 bg-blue-50/20" style={forceEnNumsStyle}>{row.currentBalance?.toFixed(3)}</td><td className="p-2 text-center"><button onClick={() => { if(window.confirm('حذف هذه الحركة؟')) { dbService.deleteMovement(row.moveId); setUpdateTrigger(p => p+1); refreshProducts(); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all"><Trash2 size={18}/></button></td></tr>))}</tbody></table></div></div>
-            </div>
-        );
-    }
-
-    if (isQuickDesign) {
-        return (
-            <div className="space-y-6 font-cairo animate-fade-in" dir="rtl">
-                {isFormOpen && (
-                    <div className="animate-fade-in space-y-6">
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 no-print">
-                            {currentTabs.map(tab => (
-                                <TabItem key={tab.id} active={activeMoveType === tab.id} onClick={() => setActiveMoveType(tab.id)} {...tab} />
-                            ))}
-                        </div>
-
-                        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-visible no-print animate-fade-in">
-                            <div className="bg-slate-900 px-8 py-3 text-white flex justify-between items-center rounded-t-[2.5rem] shadow-lg border-b border-white/10">
-                                <div className="flex items-center gap-3">
-                                    <Edit2 size={20}/>
-                                    <h3 className="font-black text-[14px]">نافذة تسجيل: {currentTabs.find(t => t.id === activeMoveType)?.label}</h3>
-                                </div>
-                                <button onClick={() => setIsFormOpen(false)} className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-1.5 rounded-xl font-black text-xs flex items-center gap-2 border-b-4 border-rose-900 transition-all active:scale-95">
-                                    <EyeOff size={16}/> إخفاء النافذة
-                                </button>
-                            </div>
-
-                            <div className="p-8 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6">
-                                    <Field label="التاريخ" icon={<Calendar size={14}/>}><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
-                                    {/** Fix: Corrected property name from supplierName to supplier */}
-                                    {view === 'raw_return' && activeMoveType === 'out' && <Field label="المورد المرتجع له" icon={<Truck size={14}/>}><input className={inputClasses} value={formHeader.supplier} onChange={e => setFormHeader({...formHeader, supplier: e.target.value})} placeholder="اسم المورد..."/></Field>}
-                                    <Field label="أمين المخزن" icon={<UserCog size={14}/>}><select className={inputClasses} value={formHeader.storekeeper} onChange={e => setFormHeader({...formHeader, storekeeper: e.target.value})}><option value="System Admin">System Admin</option>{settings.storekeepersRaw?.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
-                                    <Field label="ملاحظات" icon={<FileText size={14}/>}><input className={inputClasses} value={formHeader.notes} onChange={e => setFormHeader({...formHeader, notes: e.target.value})} placeholder="السبب أو تفاصيل..."/></Field>
-                                </div>
-                                <div className="bg-slate-900 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-end gap-6 shadow-2xl relative z-10">
-                                    <div className="flex-1 relative w-full"><label className="text-[11px] font-black text-slate-400 mb-2 block uppercase tracking-wider">البحث عن الصنف</label><div className="relative"><input className="w-full p-4 pr-12 rounded-2xl border-none bg-white outline-none font-black text-md shadow-inner" placeholder="بحث..." value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} /><Search className="absolute right-4 top-4 text-slate-300" size={24}/>{itemSearch && !selectedProduct && (<div className="absolute top-full left-0 right-0 z-[2000] bg-white border-2 border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-72 overflow-y-auto p-2">{products.filter(p => p.warehouse === 'raw' || ['خامات', 'خامات اساسية', 'اضافات', 'شكاير', 'كروت', 'مستلزمات'].includes(p.category)).filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch)) || p.barcode.includes(itemSearch)).map(p => (<div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-4 hover:bg-slate-50 cursor-pointer border-b last:border-0 rounded-xl flex justify-between items-center transition-all group"><div className="flex flex-col"><span className="font-black text-slate-800">{p.name}</span><span className="text-[10px] text-slate-400 font-bold">كود: {p.barcode} | JDE: {p.jdeCode || '-'}</span></div><span className="bg-slate-100 text-slate-700 px-4 py-1 rounded-full text-[11px] font-black">رصيد: {p.stock}</span></div>))}</div>)}</div></div>
-                                    <div className="w-full md:w-48"><label className="text-[10px] font-black text-slate-400 mb-2 block text-center uppercase">الكمية</label><input type="number" className="w-full p-4 rounded-2xl border-none bg-white text-center font-black text-2xl text-blue-800 shadow-inner" value={qty} onChange={e => setQty(e.target.value)} placeholder="0.000" style={forceEnNumsStyle}/></div>
-                                    <button onClick={handleQuickAddAndSave} className={`px-12 h-[60px] rounded-2xl shadow-xl transition-all active:scale-90 border-b-4 font-black text-xl text-white ${activeMoveType === 'in' || activeMoveType === 'allowed' ? 'bg-emerald-600 border-emerald-900' : 'bg-rose-600 border-rose-900'}`}><Plus size={32} className="inline ml-2"/> تسجيل {currentTabs.find(t => t.id === activeMoveType)?.label}</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden mt-6 animate-fade-in">
-                    <div className="bg-white p-6 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
+    return (
+        <div className="space-y-6 animate-fade-in" dir="rtl">
+            {isFormOpen && (
+                <div className="bg-white p-8 rounded-xl border border-violet-100 shadow-xl no-print">
+                    <div className="flex justify-between items-center mb-6">
                         <div className="flex items-center gap-4">
-                            <div className="p-4 bg-slate-900 text-white rounded-3xl shadow-xl"><History size={24}/></div>
-                            <div>
-                                <h2 className="text-xl font-black text-slate-800">سجل حركات: {title}</h2>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">عرض كافة العمليات السابقة لهذا النوع</p>
+                            <div className="p-3 bg-violet-100 text-violet-700 rounded-xl shadow-sm"><Gauge size={28}/></div>
+                            <div><h3 className="text-xl font-black text-slate-800">صرف الكنترول (إدخال مجمع أو يدوي)</h3></div>
+                        </div>
+                        <button onClick={() => setIsFormOpen(false)} className="bg-rose-600 text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg border-b-4 border-rose-800 transition-all transform active:scale-95"><X size={16}/> إخفاء</button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+                        <Field label="التاريخ"><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
+                        <Field label="رقم الإذن (يدوي)"><input className={`${inputClasses} bg-blue-50 border-blue-200`} value={formHeader.refNumber} onChange={e => setFormHeader({...formHeader, refNumber: e.target.value})} placeholder="تلقائي"/></Field>
+                        <Field label="الوردية"><select className={inputClasses} value={formHeader.shift} onChange={e => setFormHeader({...formHeader, shift: e.target.value})}>{settings.shifts?.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
+                        <Field label="أمين المخزن"><input className={inputClasses} value={formHeader.storekeeper} onChange={e => setFormHeader({...formHeader, storekeeper: e.target.value})}/></Field>
+                        <Field label="ملاحظات"><input className={inputClasses} value={formHeader.notes} onChange={e => setFormHeader({...formHeader, notes: e.target.value})}/></Field>
+                        
+                        <DynamicCustomFieldsRenderer target="raw_issue" formData={formHeader} setFormData={setFormHeader} />
+                    </div>
+
+                    <div className="bg-slate-900 rounded-xl p-6 flex flex-col md:flex-row items-end gap-4 shadow-2xl relative z-10 mb-6 border-b-8 border-slate-950">
+                        <div className="flex-1 relative w-full"><label className="text-[11px] font-black text-slate-400 mb-1 block mr-4 uppercase">البحث عن الصنف</label><div className="relative"><input className="w-full p-2.5 pr-12 rounded-xl border-none bg-white outline-none font-bold text-md shadow-inner" placeholder="بحث صنف تشغيل..." value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} /><Search className="absolute right-4 top-2.5 text-slate-300" size={24}/>{itemSearch && !selectedProduct && (
+                            <div className="absolute top-full left-0 right-0 z-[1000] bg-white border border-blue-200 rounded-xl shadow-2xl mt-2 max-h-72 overflow-y-auto p-2">
+                                {products.filter(p => p.warehouse === 'raw').filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch))).map(p => (
+                                    <div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-4 hover:bg-slate-50 cursor-pointer border-b rounded-xl flex justify-between items-center transition-all group">
+                                        <div className="flex flex-col"><span className="font-black text-slate-800">{p.name}</span><span className="text-[10px] text-slate-400 font-bold">كود: {p.barcode}</span></div>
+                                        <span className="bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-[11px] font-black">رصيد: {p.stockPacked}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}</div></div>
+                        <div className="w-24 text-center"><label className="text-[10px] text-blue-300 mb-1 block uppercase">تسمين</label><input type="number" className="w-full p-2 rounded-xl bg-white text-center font-black" value={formHeader.fattening} onChange={e => setFormHeader({...formHeader, fattening: e.target.value})} style={forceEnNumsStyle}/></div>
+                        <div className="w-24 text-center"><label className="text-[10px] text-blue-300 mb-1 block uppercase">سمك</label><input type="number" className="w-full p-2 rounded-xl bg-white text-center font-black" value={formHeader.fish} onChange={e => setFormHeader({...formHeader, fish: e.target.value})} style={forceEnNumsStyle}/></div>
+                        <div className="w-24 text-center"><label className="text-[10px] text-blue-300 mb-1 block uppercase">بط</label><input type="number" className="w-full p-2 rounded-xl bg-white text-center font-black" value={formHeader.duck} onChange={e => setFormHeader({...formHeader, duck: e.target.value})} style={forceEnNumsStyle}/></div>
+                        <div className="w-24 text-center"><label className="text-[10px] text-blue-300 mb-1 block uppercase">أليفة</label><input type="number" className="w-full p-2 rounded-xl bg-white text-center font-black" value={formHeader.pets} onChange={e => setFormHeader({...formHeader, pets: e.target.value})} style={forceEnNumsStyle}/></div>
+                        <button onClick={handleQuickAdd} className="bg-violet-600 hover:bg-violet-700 text-white p-3 rounded-xl shadow-xl active:scale-90 h-12 px-8 font-black border-b-4 border-violet-900"><Plus size={24}/></button>
+                    </div>
+
+                    {pastedItems.length === 0 ? (
+                        <div className="bg-violet-50/50 border-4 border-dashed border-violet-100 rounded-xl p-12 text-center group hover:bg-violet-50 transition-all relative">
+                            <textarea className="absolute inset-0 opacity-0 cursor-pointer z-10" onPaste={handlePaste} placeholder="الصق هنا..." />
+                            <div className="flex flex-col items-center gap-4 pointer-events-none">
+                                <div className="p-6 bg-white rounded-full shadow-lg text-violet-600 group-hover:scale-110 transition-transform"><ClipboardPaste size={48}/></div>
+                                <h4 className="text-xl font-black text-violet-900">اضغط هنا ثم قم باللصق (Ctrl + V)</h4>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <div className="relative"><input className="w-64 pr-10 pl-4 py-2 border border-slate-100 rounded-xl text-sm outline-none font-bold bg-slate-50 shadow-inner" placeholder="بحث سريع..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search className="absolute right-3 top-2.5 text-gray-300" size={18} /></div>
-                            <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-xs shadow-sm hover:bg-slate-50 transition-all"><FileUp size={16} className="text-green-600"/> تصدير Excel</button>
-                            {!isFormOpen && (
-                                <button onClick={() => setIsFormOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg transition-all active:scale-95 border-b-4 border-emerald-800">
-                                    <PlusCircle size={18}/> إظهار نافذة الإدخال
-                                </button>
-                            )}
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="bg-white border rounded-xl overflow-hidden shadow-md max-h-[400px] overflow-y-auto">
+                                <table className="w-full text-center text-sm border-collapse">
+                                    <thead className="bg-[#002060] text-yellow-300 font-black h-10 sticky top-0 z-10">
+                                        <tr><th>التاريخ</th><th>الاسم</th><th>تسمين</th><th>سمك</th><th>بط</th><th>أليفة</th><th>الإجمالي</th><th>رصيد متوقع</th></tr>
+                                    </thead>
+                                    <tbody className="font-bold">
+                                        {pastedItems.map((it, i) => (
+                                            <tr key={i} className={`border-b h-10 ${it.isValid ? 'hover:bg-blue-50' : 'bg-red-50'}`}>
+                                                <td style={forceEnNumsStyle}>{it.date}</td>
+                                                <td className="text-right pr-4">{it.name}</td>
+                                                <td style={forceEnNumsStyle}>{it.fattening}</td><td style={forceEnNumsStyle}>{it.fish}</td><td style={forceEnNumsStyle}>{it.duck}</td><td style={forceEnNumsStyle}>{it.pets}</td>
+                                                <td className="text-violet-700 font-black" style={forceEnNumsStyle}>{it.total.toFixed(3)}</td>
+                                                <td className={`font-black ${(it.currentStock - it.total) < 0 ? 'text-red-500' : 'text-green-500'}`} style={forceEnNumsStyle}>{(it.currentStock - it.total).toFixed(3)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex gap-4">
+                                <button onClick={handleBatchPost} className="flex-1 bg-violet-600 text-white py-4 rounded-xl font-black text-xl shadow-xl flex items-center justify-center gap-3 active:scale-95 border-b-4 border-violet-900"><Send/> ترحيل البيانات للصوامع</button>
+                                <button onClick={() => setPastedItems([])} className="px-8 bg-slate-100 rounded-xl font-bold border border-slate-200">إلغاء</button>
+                            </div>
                         </div>
-                    </div>
-                    <div className="overflow-x-auto max-h-[60vh] relative z-0">
-                        <table className="w-full border-collapse min-w-[1500px]" ref={tableRef}>
-                            <thead className="sticky top-0 z-20 bg-[#1e293b] text-white font-black text-[11px] uppercase border-b">
-                                <tr>
-                                    <th className="p-4 border-l border-slate-700 w-12 text-center">م</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">التاريخ</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">رقم الإذن</th>
-                                    <th className="p-4 border-l border-slate-700 text-right pr-6 min-w-[250px]">اسم الصنف</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">الوحدة</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">الكمية</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">نوع الحركة / السبب</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">أمين المخزن</th>
-                                    <th className="p-4 border-l border-slate-700 text-center">الرصيد اللحظي</th>
-                                    <th className="p-4 text-center">إجراء</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-[13px] font-bold text-slate-700 bg-white">
-                                {tableData.map((row: any, idx) => (
-                                    <tr key={row.moveId} className={`border-b h-14 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
-                                        <td className="p-2 border-l text-center" style={forceEnNumsStyle}>{idx + 1}</td>
-                                        <td className="p-2 border-l text-center" style={forceEnNumsStyle}>{row.displayDate}</td>
-                                        <td className="p-2 border-l text-center font-mono text-indigo-700" style={forceEnNumsStyle}>{row.refNumber}</td>
-                                        <td className="p-2 border-l text-right pr-6 font-black text-slate-900">{row.productName}</td>
-                                        <td className="p-2 border-l text-slate-400 font-bold">{row.unit}</td>
-                                        <td className={`p-2 border-l text-center text-xl font-black ${row.type === 'in' || (row.type === 'adjustment' && (row.moveMode === 'in' || row.moveMode === 'allowed')) ? 'text-emerald-600' : 'text-rose-600'}`} style={forceEnNumsStyle}>{row.quantity.toFixed(3)}</td>
-                                        <td className="p-2 border-l text-center font-bold">{row.reason}</td>
-                                        <td className="p-2 border-l text-center font-bold text-slate-400">{row.storekeeper || row.user}</td>
-                                        <td className="p-2 border-l text-center font-black text-blue-900 bg-blue-50/20" style={forceEnNumsStyle}>{row.currentBalance?.toFixed(3)}</td>
-                                        <td className="p-2 text-center"><button onClick={() => { if(window.confirm('حذف هذه الحركة؟')) { dbService.deleteMovement(row.moveId); setUpdateTrigger(p => p+1); refreshProducts(); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all"><Trash2 size={18}/></button></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    )}
+                </div>
+            )}
+            <div className="bg-white rounded-xl border border-slate-100 shadow-premium overflow-hidden">
+                <div className="p-6 border-b flex justify-between items-center bg-slate-900 text-white">
+                    <h2 className="text-xl font-black">سجل الكنترول التاريخي</h2>
+                    <div className="flex items-center gap-4">
+                        <div className="relative w-64"><input className="w-full pr-10 pl-4 py-2 rounded-xl text-slate-800 text-sm font-bold shadow-inner border-none" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/><Search className="absolute right-3 top-2.5 text-gray-400" size={18}/></div>
+                        <button onClick={handleExport} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg active:scale-95 border-b-4 border-emerald-800 transition-all"><FileUp size={18}/> تصدير Excel</button>
+                        {!isFormOpen && <button onClick={() => setIsFormOpen(true)} className="bg-violet-600 text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg active:scale-95 border-b-4 border-violet-800 transition-all"><Plus size={18}/> إظهار الإدخال</button>}
                     </div>
                 </div>
+                <div className="overflow-x-auto max-h-[60vh]">
+                    <table className="w-full border-collapse min-w-[2000px]" ref={tableRef}>
+                        <thead className="sticky top-0 bg-[#002060] text-yellow-300 font-black text-[11px] uppercase border-b h-12 shadow-lg z-10">
+                            <tr><th className="p-3 border-l border-slate-700">م</th><th className="p-3 border-l border-slate-700">التاريخ</th><th className="p-3 border-l border-slate-700">رقم الإذن</th><th className="p-3 border-l border-slate-700 text-right pr-6 min-w-[250px]">اسم الصنف</th><th className="p-3 border-l border-slate-700">تسمين</th><th className="p-3 border-l border-slate-700">سمك</th><th className="p-3 border-l border-slate-700">بط</th><th className="p-3 border-l border-slate-700">أليفة</th><th className="p-3 border-l border-slate-700 font-black">الإجمالي</th><th className="p-3">إجراءات</th></tr>
+                        </thead>
+                        <tbody className="text-[13px] font-bold">
+                            {tableData.map((r, i) => (
+                                <tr key={`${r.moveId}-${i}`} className={`border-b h-14 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-violet-50 transition-colors`}>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{i + 1}</td>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{r.displayDate}</td>
+                                    <td className="p-2 border-l font-mono text-indigo-600" style={forceEnNumsStyle}>{r.refNumber}</td>
+                                    <td className="p-2 border-l text-right pr-6 font-black text-slate-900">{r.productName}</td>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{formatVal(r.fattening)}</td>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{formatVal(r.fish)}</td>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{formatVal(r.duck)}</td>
+                                    <td className="p-2 border-l" style={forceEnNumsStyle}>{formatVal(r.pets)}</td>
+                                    <td className="p-2 border-l text-violet-700 font-black text-lg" style={forceEnNumsStyle}>{formatVal(r.quantity)}</td>
+                                    <td className="p-2 text-center"><button onClick={() => { if(window.confirm('حذف؟')) { dbService.deleteMovement(r.moveId); refreshProducts(); setUpdateTrigger(p => p + 1); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all active:scale-90"><Trash2 size={20}/></button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        );
-    }
+        </div>
+    );
+};
 
-    return null;
+/**
+ * 3. حركات مخزنية أخرى
+ */
+const OtherMovementsView: React.FC<{ view: any, title: string, onSuccess: () => void }> = ({ view, title, onSuccess }) => {
+    const { settings, products, user, refreshProducts, addNotification } = useApp();
+    const [activeTab, setActiveTab] = useState('out');
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [itemSearch, setItemSearch] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [qty, setQty] = useState('');
+    const [updateTrigger, setUpdateTrigger] = useState(0);
+
+    const INITIAL_HEADER = { 
+        date: new Date().toISOString().split('T')[0], 
+        notes: '', recipientName: '', targetWarehouse: '', refNumber: '', customFields: {}
+    };
+    const [formHeader, setFormHeader] = useState<any>(INITIAL_HEADER);
+    const tableRef = useRef<HTMLTableElement>(null);
+
+    const isQuickDesign = ['shortage', 'wh_adj', 'silo_adj', 'silo_trans', 'raw_return', 'wh_out', 'wh_transfer', 'raw_sale'].includes(view);
+    const currentTabs = useMemo(() => {
+        if (view === 'silo_trans') return [{ id: 'in', label: 'إضافة للصوامع', icon: <PlusCircle size={24}/>, color: 'emerald' }, { id: 'out', label: 'خصم من الصوامع', icon: <MinusSquare size={24}/>, color: 'rose' }];
+        if (view === 'shortage') return [{ id: 'allowed', label: 'عجز مسموح', icon: <FileWarning size={24}/>, color: 'amber' }, { id: 'disallowed', label: 'عجز غير مسموح', icon: <ShieldAlert size={24}/>, color: 'rose' }];
+        if (view.includes('adj')) return [{ id: 'in', label: 'تسوية إضافة', icon: <PlusSquare size={24}/>, color: 'emerald' }, { id: 'out', label: 'تسوية خصم', icon: <MinusSquare size={24}/>, color: 'rose' }];
+        if (view === 'raw_return') return [{ id: 'in', label: 'مرتجع وارد', icon: <Undo2 size={24}/>, color: 'emerald' }, { id: 'out', label: 'مرتجع صادر', icon: <RotateCcw size={24}/>, color: 'rose' }];
+        if (view === 'wh_out') return [{ id: 'out', label: 'صرف من المخزن', icon: <LogOut size={24}/>, color: 'rose' }];
+        if (view === 'wh_transfer') return [{ id: 'out', label: 'تحويل صادر', icon: <ArrowRightLeft size={24}/>, color: 'blue' }];
+        if (view === 'raw_sale') return [{ id: 'out', label: 'إذن مبيعات', icon: <ShoppingCart size={24}/>, color: 'blue' }];
+        return [];
+    }, [view]);
+
+    useEffect(() => { if (currentTabs.length > 1) setActiveTab(currentTabs[0].id); }, [view]);
+
+    const handleSave = () => {
+        if (!selectedProduct || !qty) return alert('أكمل البيانات');
+        let type: any = 'out';
+        if (activeTab === 'in' || activeTab === 'allowed') type = (view === 'raw_return' ? 'return' : (isQuickDesign ? 'adjustment' : 'in'));
+        if (activeTab === 'out' || activeTab === 'disallowed') type = (view === 'raw_return' ? 'out' : (isQuickDesign ? 'adjustment' : 'out'));
+        if (view === 'silo_trans' || view === 'wh_transfer') type = 'transfer';
+        if (view === 'raw_sale') type = 'out';
+
+        const finalRef = formHeader.refNumber || dbService.getNextId(type === 'in' ? 'receiveVoucher' : 'issueVoucher');
+
+        const move: StockMovement = {
+            id: Date.now().toString(), date: new Date(formHeader.date).toISOString(), type, warehouse: 'raw',
+            refNumber: finalRef,
+            user: user?.name || 'Admin', items: [{ productId: selectedProduct.id, productName: selectedProduct.name, quantity: parseFloat(qty), unit: selectedProduct.unit || 'طن', notes: formHeader.notes }],
+            reason: formHeader.recipientName || title,
+            customFields: { ...formHeader, ...formHeader.customFields, viewContext: view, moveMode: activeTab, refNumber: finalRef }
+        };
+        dbService.saveMovement(move); 
+        refreshProducts(); 
+        setQty(''); 
+        setSelectedProduct(null); 
+        setItemSearch('');
+        setFormHeader({...INITIAL_HEADER, refNumber: dbService.peekNextId(type === 'in' ? 'receiveVoucher' : 'issueVoucher')});
+        setUpdateTrigger(p => p + 1);
+        addNotification('تم تسجيل الحركة بنجاح وتصفير الحقول', 'success');
+    };
+
+    const tableData: any[] = useMemo(() => {
+        return dbService.getMovements()
+            .filter(m => m.customFields?.viewContext === view)
+            .flatMap(m => m.items.map(it => ({ 
+                ...m, 
+                ...it, 
+                ...m.customFields, 
+                moveId: m.id, 
+                displayDate: new Date(m.date).toLocaleDateString('en-GB') 
+            })))
+            .filter(r => smartNormalize(r.productName).includes(smartNormalize(searchTerm)))
+            .reverse();
+    }, [view, searchTerm, updateTrigger]);
+
+    const handleExport = () => {
+        const headers = ["م", "التاريخ", "رقم الإذن", "الصنف", "الكمية", "البيان / المستلم", "أمين المخزن", "ملاحظات"];
+        const data = tableData.map((r, i) => [
+            i + 1, r.displayDate, r.refNumber, r.productName, r.quantity, r.reason, r.user, r.notes || '-'
+        ]);
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+        XLSX.utils.book_append_sheet(wb, ws, "Report");
+        XLSX.writeFile(wb, `${title}_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    const TabItem = ({ active, onClick, icon, label, color }: any) => {
+        const colorClasses: Record<string, string> = {
+            emerald: active ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50',
+            rose: active ? 'bg-rose-50 border-rose-500 text-rose-700 shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50',
+            amber: active ? 'bg-amber-50 border-amber-500 text-amber-700 shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50',
+            blue: active ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50',
+        };
+        const colorClass = colorClasses[color] || (active ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50');
+        return <button onClick={onClick} className={`flex items-center gap-2 p-4 rounded-xl border-2 transition-all ${colorClass}`}>{icon} <span className="font-black text-xs">{label}</span></button>;
+    };
+
+    return (
+        <div className="space-y-6">
+            {isFormOpen && (
+                <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-xl no-print">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-2xl font-black text-slate-800">{title}</h3>
+                        <button onClick={() => setIsFormOpen(false)} className="bg-rose-600 text-white px-6 py-2 rounded-xl font-black text-[12px] flex items-center gap-2 shadow-lg border-b-4 border-rose-800 transition-all"><X size={16}/> إخفاء</button>
+                    </div>
+                    {isQuickDesign && currentTabs.length > 1 && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">{currentTabs.map(t => <TabItem key={t.id} active={activeTab === t.id} onClick={() => setActiveTab(t.id)} {...t}/>)}</div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+                        <Field label="التاريخ"><input type="date" value={formHeader.date} onChange={e => setFormHeader({...formHeader, date: e.target.value})} className={inputClasses} style={forceEnNumsStyle}/></Field>
+                        <Field label="رقم الإذن (يدوي)"><input className={`${inputClasses} bg-blue-50 border-blue-200`} value={formHeader.refNumber} onChange={e => setFormHeader({...formHeader, refNumber: e.target.value})} placeholder="تلقائي"/></Field>
+                        <Field label="البيان / المستلم"><input className={inputClasses} value={formHeader.recipientName} onChange={e => setFormHeader({...formHeader, recipientName: e.target.value})}/></Field>
+                        <Field label="ملاحظات"><input className={inputClasses} value={formHeader.notes} onChange={e => setFormHeader({...formHeader, notes: e.target.value})}/></Field>
+                        {view === 'wh_transfer' && <Field label="المخزن الوجهة"><input className={inputClasses} value={formHeader.targetWarehouse} onChange={e => setFormHeader({...formHeader, targetWarehouse: e.target.value})}/></Field>}
+                        
+                        <DynamicCustomFieldsRenderer 
+                            target={ (view === 'raw_in' || view === 'raw_return') ? 'raw_receive' : (view === 'wh_adj' || view === 'silo_adj' || view === 'shortage') ? 'raw_settlement' : 'raw_issue' } 
+                            formData={formHeader} 
+                            setFormData={setFormHeader} 
+                        />
+                    </div>
+                    <div className="bg-slate-900 p-6 rounded-xl flex flex-col md:flex-row items-end gap-4 shadow-xl border-b-8 border-slate-950">
+                        <div className="flex-1 relative w-full"><label className="text-[10px] text-slate-400 mb-1 block">البحث عن الصنف</label>
+                            <input className="w-full p-3 rounded-xl border-none font-bold outline-none" value={itemSearch} onChange={e => { setItemSearch(e.target.value); if(selectedProduct) setSelectedProduct(null); }} placeholder="بحث..." />
+                            {itemSearch && !selectedProduct && (
+                                <div className="absolute top-full left-0 right-0 bg-white border-2 border-indigo-100 rounded-xl shadow-2xl z-[1000] p-2 max-h-40 overflow-y-auto">
+                                    {products.filter(p => p.warehouse === 'raw').filter(p => smartNormalize(p.name).includes(smartNormalize(itemSearch))).map(p => (
+                                        <div key={p.id} onClick={() => {setSelectedProduct(p); setItemSearch(p.name);}} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 font-bold text-sm rounded-lg flex justify-between"><span>{p.name}</span><span className="text-xs text-blue-600">رصيد: {p.stock}</span></div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="w-48"><label className="text-[10px] text-slate-400 mb-1 block text-center">الكمية</label><input type="number" value={qty} onChange={e => setQty(e.target.value)} className="w-full p-3 rounded-xl text-center font-black text-blue-800" style={forceEnNumsStyle} placeholder="0.000"/></div>
+                        <button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-black shadow-lg flex items-center gap-2 h-[52px] border-b-4 border-indigo-900 active:scale-95 transition-all"><Save size={20}/> تسجيل الحركة</button>
+                    </div>
+                </div>
+            )}
+            <div className="bg-white rounded-xl border border-slate-100 shadow-premium overflow-hidden">
+                <div className="p-6 border-b flex justify-between items-center bg-slate-900 text-white">
+                    <h2 className="text-xl font-black">السجل التاريخي للعملية: {title}</h2>
+                    <div className="flex items-center gap-4">
+                        <div className="relative w-64"><input className="w-full pr-10 pl-4 py-2 rounded-xl text-slate-800 text-sm font-bold shadow-inner border-none" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/><Search className="absolute right-3 top-2.5 text-gray-400" size={18}/></div>
+                        <button onClick={handleExport} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg active:scale-95 border-b-4 border-emerald-800 transition-all"><FileUp size={18}/> تصدير Excel</button>
+                        {!isFormOpen && <button onClick={() => setIsFormOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg active:scale-95 border-b-4 border-blue-800 transition-all"><PlusCircle size={16} className="inline ml-1"/> إظهار الإدخال</button>}
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full border-collapse min-w-[1500px]" ref={tableRef}>
+                        <thead className="bg-[#1e293b] text-white font-black text-[11px] uppercase border-b h-12 shadow-md">
+                            <tr><th className="p-4 border-l border-slate-700 w-12 text-center">م</th><th>التاريخ</th><th>رقم الإذن</th><th className="text-right pr-6 min-w-[250px]">اسم الصنف</th><th>الكمية</th><th>نوع الحركة / السبب</th><th>أمين المخزن</th><th>الرصيد</th><th>إجراء</th></tr>
+                        </thead>
+                        <tbody className="text-[13px] font-bold text-slate-700 bg-white">
+                            {tableData.map((r, i) => (
+                                <tr key={`${r.moveId}-${i}`} className={`border-b h-14 hover:bg-slate-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                                    <td className="p-2 border-l text-center" style={forceEnNumsStyle}>{i + 1}</td>
+                                    <td className="p-2 border-l text-center" style={forceEnNumsStyle}>{r.displayDate}</td>
+                                    <td className="p-2 border-l text-center font-mono text-indigo-700" style={forceEnNumsStyle}>{r.refNumber}</td>
+                                    <td className="p-2 border-l text-right pr-6 font-black text-slate-900">{r.productName}</td>
+                                    <td className={`p-2 border-l text-center text-xl font-black ${r.type === 'in' || r.moveMode?.includes('in') || r.moveMode?.includes('allowed') ? 'text-emerald-600' : 'text-rose-600'}`} style={forceEnNumsStyle}>{r.quantity.toFixed(3)}</td>
+                                    <td className="p-2 border-l text-center font-bold">{r.reason}</td>
+                                    <td className="p-2 border-l text-center font-bold text-slate-400">{r.storekeeper || r.user}</td>
+                                    <td className="p-2 border-l text-center font-black text-blue-900 bg-blue-50/20" style={forceEnNumsStyle}>{r.currentBalance?.toFixed(3)}</td>
+                                    <td className="p-2 text-center"><button onClick={() => { if(window.confirm('حذف؟')) { dbService.deleteMovement(r.moveId); refreshProducts(); setUpdateTrigger(p => p + 1); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-all active:scale-90"><Trash2 size={16}/></button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export const RawMegaTable: React.FC<Props> = ({ view, onSuccess, title }) => {
+    if (view === 'raw_in') return <RawInView onSuccess={onSuccess} />;
+    if (view === 'control_out') return <ControlOutView onSuccess={onSuccess} />;
+    if (view === 'raw_ledger' || view === 'balances') return <RawLedgerView />;
+    if (view === 'raw_in_daily') return <RawDailyDetailView />;
+    if (['wh_out', 'wh_transfer', 'raw_sale', 'silo_trans', 'wh_adj', 'silo_adj', 'shortage', 'raw_return'].includes(view)) {
+        return <OtherMovementsView view={view} title={title} onSuccess={onSuccess} />;
+    }
+    return <div className="p-20 text-center text-slate-400 font-black italic">جاري التحميل...</div>;
 };

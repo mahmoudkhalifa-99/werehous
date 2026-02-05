@@ -1,5 +1,7 @@
 {
-  "name": "المخازن",
-  "description": "A sophisticated, offline-first Point of Sale system featuring Soft Glass Neumorphism design, inventory management, sales reporting, and thermal printing support.",
-  "requestFramePermissions": []
+  "name": "نظام إدارة مخازن الدقهلية",
+  "description": "نظام متطور لإدارة المخازن (تام، خامات، قطع غيار، إعاشة) مع دعم الذكاء الاصطناعي والتقارير المتقدمة.",
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

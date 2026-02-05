@@ -65,7 +65,7 @@ export const PartsMegaTable: React.FC<Props> = ({ view, title }) => {
             })
             .flatMap(m => m.items.map((item, idx) => ({
                 ...m,
-                ...m.customFields, // التسطيح لضمان قراءة حقول الاستلام المخصصة
+                ...m.customFields, 
                 ...item,
                 moveId: m.id,
                 itemIdx: idx,
@@ -83,8 +83,15 @@ export const PartsMegaTable: React.FC<Props> = ({ view, title }) => {
     }, [view, searchTerm, updateTrigger, products]);
 
     const isInbound = view === 'in' || view === 'transfer_in' || view === 'all';
+    const isSparePartsIssue = view === 'out';
 
-    const cols = isInbound ? [
+    const cols = isSparePartsIssue ? [
+        "م", "التاريخ", "رقم طلب الصرف", "كود الصنف", "اسم الصنف", "الوحدة", "الكمية", 
+        "المخزن التابع", "الادارة التابع لها", "القسم التابع له", "أمين المخزن", 
+        "كود الموظف", "اسم المستلم", "رقم امر الشغل", "كود المعدة", "حالة الصرف", 
+        "موقف القطع القديمة", "رقم العداد", "الوردية", "وقت الدخول", "وقت الخروج", 
+        "الفرق", "الرصيد الحالى", "ملاحظات"
+    ] : isInbound ? [
         "م", "التاريخ", "رقم الإذن", "رقم PO", "المورد", "الكود", "اسم الصنف", "الوحدة", "الكمية", 
         "رقم الفحص", "القائم بالفحص", "القائم بالتسكين", "رقم الإضافة سيستم", "أمين المخزن", "الرصيد اللحظي"
     ] : [
@@ -139,11 +146,11 @@ export const PartsMegaTable: React.FC<Props> = ({ view, title }) => {
 
             <div className="bg-white rounded-xl shadow-premium border border-slate-300 overflow-hidden relative z-0">
                 <div className="overflow-auto max-h-[75vh]">
-                    <table className="w-full border-collapse min-w-[2800px]" ref={tableRef}>
+                    <table className="w-full border-collapse min-w-[3800px]" ref={tableRef}>
                         <thead className="sticky top-0 z-20 bg-slate-900 text-white">
                             <tr className="h-14">
                                 {cols.map((c, i) => (
-                                    <th key={i} className="p-3 border border-slate-700 text-[11px] uppercase" style={getCellStyle()}>
+                                    <th key={i} className="p-3 border border-slate-700 text-[10px] uppercase font-black" style={getCellStyle()}>
                                         {c}
                                     </th>
                                 ))}
@@ -151,44 +158,72 @@ export const PartsMegaTable: React.FC<Props> = ({ view, title }) => {
                         </thead>
                         <tbody>
                             {tableData.map((row: any, idx: number) => (
-                                <tr key={`${row.moveId}-${row.itemIdx}`} className={`border-b hover:bg-indigo-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                                <tr key={`${row.moveId}-${row.itemIdx}`} className={`border-b hover:bg-indigo-50 transition-colors h-12 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
                                     <td className="p-2 border" style={getCellStyle(true)}>{idx + 1}</td>
                                     <td className="p-2 border" style={getCellStyle(true)}>{row.displayDate}</td>
                                     <td className="p-2 border font-bold text-indigo-800" style={getCellStyle(true)}>{row.refNumber}</td>
                                     
-                                    {isInbound ? (
+                                    {isSparePartsIssue ? (
                                         <>
-                                            <td className="p-2 border text-blue-700 font-bold" style={getCellStyle(true)}>{row.purchaseOrderNo || '-'}</td>
-                                            <td className="p-2 border font-black text-slate-800" style={getCellStyle()}>{row.supplierName || row.reason || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.productCode}</td>
+                                            <td className="p-2 border text-right pr-4 font-black text-blue-900" style={getCellStyle()}>{row.productName}</td>
+                                            <td className="p-2 border bg-slate-50 font-bold" style={getCellStyle()}>{row.unit}</td>
+                                            <td className="p-2 border font-black text-lg text-orange-600 bg-orange-50" style={getCellStyle(true)}>{formatVal(row.quantity)}</td>
+                                            <td className="p-2 border text-xs">{row.subWarehouse || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.department || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.section || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.storekeeper || row.user}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.employeeCode || '-'}</td>
+                                            <td className="p-2 border text-xs font-bold">{row.reason || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.workOrderNo || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.equipmentCode || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.issueStatus || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.oldPartsStatus || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.meterReading || '-'}</td>
+                                            <td className="p-2 border text-xs">{row.shift || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.entryTime || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs" style={getCellStyle(true)}>{row.exitTime || '-'}</td>
+                                            <td className="p-2 border font-mono text-xs text-indigo-600 font-black" style={getCellStyle(true)}>{row.timeDiff || '-'}</td>
+                                            <td className="p-2 border bg-slate-50 font-black text-blue-900" style={getCellStyle(true)}>{formatVal(row.currentBalance)}</td>
+                                            <td className="p-2 border text-xs italic text-slate-400">{row.notes || '-'}</td>
                                         </>
                                     ) : (
-                                        <td className="p-2 border font-bold text-indigo-600" style={getCellStyle()}>{row.issueType || '-'}</td>
-                                    )}
+                                        <>
+                                            {isInbound ? (
+                                                <>
+                                                    <td className="p-2 border text-blue-700 font-bold" style={getCellStyle(true)}>{row.purchaseOrderNo || '-'}</td>
+                                                    <td className="p-2 border font-black text-slate-800" style={getCellStyle()}>{row.supplierName || row.reason || '-'}</td>
+                                                </>
+                                            ) : (
+                                                <td className="p-2 border font-bold text-indigo-600" style={getCellStyle()}>{row.issueType || '-'}</td>
+                                            )}
 
-                                    <td className="p-2 border font-mono text-[11px]" style={getCellStyle(true)}>{row.productCode}</td>
-                                    <td className="p-2 border text-right pr-4 font-black text-blue-900" style={getCellStyle()}>{row.productName}</td>
-                                    <td className="p-2 border bg-slate-50 font-bold" style={getCellStyle()}>{row.unit}</td>
-                                    <td className={`p-2 border font-black text-lg ${row.type === 'in' ? 'text-green-600 bg-green-50' : row.type === 'out' ? 'text-orange-600 bg-orange-50' : 'text-blue-600 bg-blue-50'}`} style={getCellStyle(true)}>{formatVal(row.quantity)}</td>
-                                    
-                                    {isInbound ? (
-                                        <>
-                                            <td className="p-2 border" style={getCellStyle(true)}>{row.inspectionReportNo || '-'}</td>
-                                            <td className="p-2 border" style={getCellStyle()}>{row.inspectingOfficer || '-'}</td>
-                                            <td className="p-2 border text-indigo-600 font-bold" style={getCellStyle()}>{row.housingOfficer || '-'}</td>
-                                            <td className="p-2 border bg-rose-50 text-rose-800 font-black" style={getCellStyle(true)}>{row.systemAddNo || '-'}</td>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <td className="p-2 border" style={getCellStyle()}>{row.department || '-'}</td>
-                                            <td className="p-2 border" style={getCellStyle()}>{row.section || '-'}</td>
-                                            <td className="p-2 border font-bold" style={getCellStyle()}>{row.recipientName || '-'}</td>
-                                            <td className="p-2 border" style={getCellStyle(true)}>{row.equipmentCode || '-'}</td>
-                                            <td className="p-2 border text-blue-700 font-bold" style={getCellStyle(true)}>{row.workOrderNo || '-'}</td>
+                                            <td className="p-2 border font-mono text-[11px]" style={getCellStyle(true)}>{row.productCode}</td>
+                                            <td className="p-2 border text-right pr-4 font-black text-blue-900" style={getCellStyle()}>{row.productName}</td>
+                                            <td className="p-2 border bg-slate-50 font-bold" style={getCellStyle()}>{row.unit}</td>
+                                            <td className={`p-2 border font-black text-lg ${row.type === 'in' ? 'text-green-600 bg-green-50' : row.type === 'out' ? 'text-orange-600 bg-orange-50' : 'text-blue-600 bg-blue-50'}`} style={getCellStyle(true)}>{formatVal(row.quantity)}</td>
+                                            
+                                            {isInbound ? (
+                                                <>
+                                                    <td className="p-2 border" style={getCellStyle(true)}>{row.inspectionReportNo || '-'}</td>
+                                                    <td className="p-2 border" style={getCellStyle()}>{row.inspectingOfficer || '-'}</td>
+                                                    <td className="p-2 border text-indigo-600 font-bold" style={getCellStyle()}>{row.housingOfficer || '-'}</td>
+                                                    <td className="p-2 border bg-rose-50 text-rose-800 font-black" style={getCellStyle(true)}>{row.systemAddNo || '-'}</td>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <td className="p-2 border" style={getCellStyle()}>{row.department || '-'}</td>
+                                                    <td className="p-2 border" style={getCellStyle()}>{row.section || '-'}</td>
+                                                    <td className="p-2 border font-bold" style={getCellStyle()}>{row.recipientName || '-'}</td>
+                                                    <td className="p-2 border" style={getCellStyle(true)}>{row.equipmentCode || '-'}</td>
+                                                    <td className="p-2 border text-blue-700 font-bold" style={getCellStyle(true)}>{row.workOrderNo || '-'}</td>
+                                                </>
+                                            )}
+                                            
+                                            <td className="p-2 border text-gray-500" style={getCellStyle()}>{row.storekeeper || row.user}</td>
+                                            <td className="p-2 border bg-slate-100 text-slate-800 font-bold" style={getCellStyle(true)}>{formatVal(row.currentBalance)}</td>
                                         </>
                                     )}
-                                    
-                                    <td className="p-2 border text-gray-500" style={getCellStyle()}>{row.storekeeper || row.user}</td>
-                                    <td className="p-2 border bg-slate-100 text-slate-800 font-bold" style={getCellStyle(true)}>{formatVal(row.currentBalance)}</td>
                                 </tr>
                             ))}
                         </tbody>

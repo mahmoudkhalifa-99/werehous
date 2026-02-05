@@ -5,7 +5,7 @@ import { dbService } from '../services/storage';
 import { Product, StockMovement } from '../types';
 import { 
     Search, Calendar, Printer, Settings, Eye, EyeOff, 
-    FileSpreadsheet, History, Layout, Tag, Box, Warehouse, Cylinder, 
+    FileSpreadsheet, History as HistoryIcon, Layout, Tag, Box, Warehouse, Cylinder, 
     ArrowRightLeft, FileText, ChevronLeft, CalendarDays,
     ChevronRight, ChevronDown, CheckCircle2, Trash2, XCircle, RotateCcw
 } from 'lucide-react';

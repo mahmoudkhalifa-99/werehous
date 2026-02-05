@@ -1,338 +1,313 @@
-import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
 import { 
-    Search, Trash2, RotateCcw, Eye, EyeOff, FileUp, FileDown, Printer, Settings
+    Search, Trash2, RotateCcw, Eye, EyeOff, FileDown, Printer, Settings, ZoomIn, 
+    ChevronDown, LayoutGrid, Clock, CalendarDays, History, Calculator, Link as LinkIcon
 } from 'lucide-react';
 import { printService } from '../services/printing';
-import { StockMovement, Sale } from '../types';
-import { ConfirmModal } from './NeumorphicUI';
-import { PrintSettingsModal } from './PrintSettingsModal';
+import { ConfirmModal, GlassButton } from './NeumorphicUI';
 import { ReportActionsBar } from './ReportActionsBar';
 import { TableToolbar } from './TableToolbar';
-import * as XLSX from 'xlsx';
 
 const forceEnNumsStyle = {
     fontVariantNumeric: 'lining-nums',
     direction: 'ltr' as const,
-    fontSize: '12px'
+    fontSize: '13px',
+    fontWeight: '800'
 };
 
 const DEFAULT_STYLES = {
-    fontFamily: 'Calibri, sans-serif',
-    fontSize: 12,
+    fontFamily: 'Cairo, sans-serif',
+    fontSize: 13,
     isBold: true,
-    isItalic: false,
-    isUnderline: false,
-    textAlign: 'center' as 'right' | 'center' | 'left',
-    verticalAlign: 'middle' as 'top' | 'middle' | 'bottom',
-    decimals: 2
+    decimals: 3,
+    textAlign: 'center' as 'center' | 'right' | 'left'
+};
+
+// محرك تقييم المعادلات المستورد من شاشة الأرصدة
+const evaluateExcelFormula = (formula: string, rowContext: Record<string, number>): number => {
+    try {
+        if (!formula || formula.trim() === '') return 0;
+        let f = formula.trim().toUpperCase();
+        if (f.startsWith('=')) f = f.substring(1);
+        const sortedKeys = Object.keys(rowContext).sort((a, b) => b.length - a.length);
+        for (const key of sortedKeys) {
+            const regex = new RegExp(`\\b${key}\\b`, 'g');
+            f = f.replace(regex, (rowContext[key] || 0).toString());
+        }
+        let sanitized = f.replace(/[^0-9.+\-*/() ]/g, '');
+        if (!sanitized.trim()) return 0;
+        const result = new Function(`return (${sanitized})`)();
+        return isNaN(result) ? 0 : result;
+    } catch (e) { return 0; }
 };
 
 export const PeriodFinishedReport: React.FC = () => {
-  const { products, settings, refreshProducts, user, t, deleteProduct } = useApp();
+  const { products, settings, user, t, deleteProduct, refreshProducts } = useApp();
+  const [activeCategory, setActiveCategory] = useState<string>('أعلاف');
   const [dateFilter, setDateFilter] = useState({ 
-      start: new Date().toISOString().split('T')[0], 
+      start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
       end: new Date().toISOString().split('T')[0] 
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [hideZeroRows, setHideZeroRows] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pageScale, setPageScale] = useState(100);
   
-  const [tableStyles, setTableStyles] = useState(() => {
-      const saved = localStorage.getItem('glasspos_period_styles');
-      return saved ? { ...DEFAULT_STYLES, ...JSON.parse(saved) } : DEFAULT_STYLES;
-  });
-
-  useEffect(() => {
-      localStorage.setItem('glasspos_period_styles', JSON.stringify(tableStyles));
-  }, [tableStyles]);
-
-  const [frozenCols] = useState(3);
+  const [tableStyles, setTableStyles] = useState(DEFAULT_STYLES);
   const tableRef = useRef<HTMLTableElement>(null);
-  const [colWidths, setColWidths] = useState<number[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [showPrintModal, setShowPrintModal] = useState(false);
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [movements, setMovements] = useState<StockMovement[]>([]);
+
+  // تحميل "منطق الميزان" المسجل من شاشة الأرصدة النهائية
+  const [linkages, setLinkages] = useState<Record<string, any>>({});
 
   useEffect(() => {
-      setSales(dbService.getSales());
-      setMovements(dbService.getMovements());
-  }, [products]); 
+      const saved = localStorage.getItem(`glasspos_mizan_logic_v16_${activeCategory}`);
+      setLinkages(saved ? JSON.parse(saved) : {});
+  }, [activeCategory, products]);
 
-  const isViewOnly = user?.permissions?.screens?.['finished'] === 'view';
-  const isAdmin = user?.role === 'admin';
+  const formatEng = (val: any) => {
+    if (val === null || val === undefined || isNaN(val) || Number(val) === 0) return "-";
+    return Number(val).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  };
 
-  const getCellStyle = (isNumeric: boolean = false): React.CSSProperties => ({
-      fontFamily: isNumeric ? 'Inter, sans-serif' : tableStyles.fontFamily,
-      fontSize: isNumeric ? '12px' : `${tableStyles.fontSize}px`,
-      fontWeight: tableStyles.isBold ? 'bold' : 'normal',
-      fontStyle: tableStyles.isItalic ? 'italic' : 'normal',
-      textDecoration: tableStyles.isUnderline ? 'underline' : 'none',
-      textAlign: tableStyles.textAlign,
-      verticalAlign: tableStyles.verticalAlign,
-      ...(isNumeric ? forceEnNumsStyle : {})
-  });
-
-  const formatEng = (val: number) => {
-    if (!val && val !== 0) return ""; 
-    if (Math.abs(val) < 0.00001 && val !== 0) return "";
-    return val.toLocaleString('en-US', { 
-        minimumFractionDigits: tableStyles.decimals, 
-        maximumFractionDigits: tableStyles.decimals 
-    });
+  const getParsedQty = (item: any, product: any) => {
+    let b = Number(item.quantityBulk || 0);
+    let pck = Number(item.quantityPacked || 0);
+    if (b === 0 && pck === 0) {
+        const unit = (item.unit || product.unit || '').toLowerCase();
+        if (unit.includes('صب') || unit.includes('bulk') || unit.includes('ton')) b = Number(item.quantity || 0);
+        else pck = Number(item.quantity || 0);
+    }
+    return { b, pck };
   };
 
   const reportData = useMemo(() => {
-    // تعديل هنا: شمول فئات المنتج التام حتى لو لم يكن المخزن "finished"
-    const finishedProducts = products.filter(p => 
-        p.warehouse === 'finished' || 
-        p.category === 'أعلاف' || 
-        p.category === 'بيوتولوجى'
-    );
+    const startRange = new Date(dateFilter.start); startRange.setHours(0,0,0,0);
+    const endRange = new Date(dateFilter.end); endRange.setHours(23,59,59,999);
 
-    let data = finishedProducts.map(product => {
-        const row = {
-            product,
-            openingBulk: 0, openingPacked: 0,
-            prodBulk: 0, receivedPacked: 0, 
-            adjInPacked: 0, adjInBulk: 0,   
-            returnClientPacked: 0, returnClientBulk: 0, 
-            transferPacked: 0, transferBulk: 0, 
-            salesFarmPacked: 0, salesFarmBulk: 0, 
-            salesClientPacked: 0, salesClientBulk: 0, 
-            outletTransfers: 0, 
-            unfinishedPacked: 0, unfinishedBulk: 0, 
-            adjOutPacked: 0, adjOutBulk: 0, 
-            totalBalance: 0, packedBalance: 0,
-            openingCount: 0, emptySacks: 0, siloRemains: 0, diff: 0, sackWeight: 0
+    const movements = dbService.getMovements();
+    const sales = dbService.getSales();
+
+    const filteredProducts = products.filter(p => {
+        const itemCat = (p.category || '').trim();
+        const isFinished = p.warehouse === 'finished';
+        if (activeCategory === 'بيوتولوجى') return isFinished && itemCat === 'بيوتولوجى';
+        return isFinished && (itemCat === 'أعلاف' || itemCat !== 'بيوتولوجى');
+    });
+
+    let initialData = filteredProducts.map((product) => {
+        const row: any = { 
+            product, 
+            G: Number(product.initialStockBulk || 0),
+            H: Number(product.initialStockPacked || 0),
+            I: 0, J: 0, K: 0, L: 0, M: 0, N: 0, O: 0, P: 0, Q: 0, R: 0, S: 0, T: 0, U: 0, V: 0, W: 0, X: 0, Y: 0, 
+            AB: 0, 
+            rawProductionFromMovements: 0 
         };
 
-        const startDate = new Date(dateFilter.start); startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(dateFilter.end); endDate.setHours(23, 59, 59, 999);
-        const isBulkItem = (product.unit?.toLowerCase() === 'ton' || product.unit?.toLowerCase() === 'طن' || product.unit?.includes('صب'));
-        row.sackWeight = product.sackWeight || (isBulkItem ? 0 : (product.name.includes('25') ? 25 : 50));
-        const getImpact = (q: number, qB: number, qP: number, t: string, n: string) => {
-            if (n.includes('شكاير')) return { bulk: 0, packed: 0 };
-            let b = qB, p = qP; if (b === 0 && p === 0) { if (isBulkItem) b = q; else p = q; }
-            let mult = (t === 'out' || t === 'sale' || (t === 'adjustment' && (n.includes('عجز') || n.includes('خصم')))) ? -1 : 1;
-            return { bulk: b * mult, packed: p * mult };
-        };
-        const categorize = (qty: number, isBulk: boolean, type: string, notes: string = '', salesType: string = '') => {
-            const absQty = Math.abs(qty); const n = notes.toLowerCase(); const sType = (salesType || '').toLowerCase();
-            if (n.includes('جرد')) { row.openingCount += qty; return; }
-            if (n.includes('غير تام')) { if (isBulk) row.unfinishedBulk += absQty; else row.unfinishedPacked += absQty; return; }
-            if (type === 'sale' && qty < 0) { if (isBulk) row.returnClientBulk += absQty; else row.returnClientPacked += absQty; return; }
-            if (type === 'in' && n.includes('مرتجع')) { if (isBulk) row.returnClientBulk += absQty; else row.returnClientPacked += absQty; return; }
-            if (type === 'in') { if (n.includes('تسوية') || n.includes('إضافة')) { if (isBulk) row.adjInBulk += absQty; else row.adjInPacked += absQty; } else { if (isBulk) row.prodBulk += absQty; else row.receivedPacked += absQty; } return; }
-            if (type === 'sale' && qty > 0) { if (sType.includes('مزارع')) { if (isBulk) row.salesFarmBulk += absQty; else row.salesFarmPacked += absQty; } else if (sType.includes('منافذ')) { row.outletTransfers += absQty; } else { if (isBulk) row.salesClientBulk += absQty; else row.salesClientPacked += absQty; } return; }
-            if (type === 'out' || (type === 'adjustment' && qty < 0)) { if (n.includes('تسوية') || n.includes('عجز')) { if (isBulk) row.adjOutBulk += absQty; else row.adjOutPacked += absQty; } else { if (isBulk) row.transferBulk += absQty; else row.transferPacked += absQty; } return; }
-        };
-
-        let historicalChangeBulk = 0; let historicalChangePacked = 0;
-        movements.forEach(m => {
-            const mDate = new Date(m.date); const item = m.items.find(i => i.productId === product.id);
-            if (item) {
-                const impact = getImpact(Number(item.quantity), Number(item.quantityBulk || 0), Number(item.quantityPacked || 0), m.type, (m.reason || '') + (item.notes || ''));
-                if (mDate < startDate) { historicalChangeBulk += impact.bulk; historicalChangePacked += impact.packed; }
-                if (mDate >= startDate && mDate <= endDate) {
-                    const qB = Number(item.quantityBulk || 0), qP = Number(item.quantityPacked || 0), notes = (m.reason || '') + (item.notes || '');
-                    if (qB !== 0) categorize(m.type === 'out' ? -Math.abs(qB) : Math.abs(qB), true, m.type, notes);
-                    if (qP !== 0) categorize(m.type === 'out' ? -Math.abs(qP) : Math.abs(qP), false, m.type, notes);
-                    if (qB === 0 && qP === 0) categorize(m.type === 'out' ? -Number(item.quantity) : Number(item.quantity), isBulkItem, m.type, notes);
+        // 1. معالجة الحركات (Movements)
+        movements.filter(m => m.warehouse === 'finished').forEach(m => {
+            const item = m.items.find(i => i.productId === product.id);
+            if (!item) return;
+            const mDate = new Date(m.date);
+            const { b: qB, pck: qP } = getParsedQty(item, product);
+            const notes = ((m.reason || '') + (item.notes || '')).toLowerCase();
+            const entryMode = (m.customFields?.entryMode || '').toLowerCase();
+            
+            if (mDate < startRange) {
+                const factor = (m.type === 'in' || m.type === 'return' || (m.type === 'adjustment' && !m.reason?.includes('خصم'))) ? 1 : -1;
+                row.G += (qB * factor);
+                row.H += (qP * factor);
+            } 
+            else if (mDate <= endRange) {
+                if (notes.includes('جرد')) { row.AB += (Number(item.quantity) * (m.type === 'out' ? -1 : 1)); }
+                else if (entryMode === 'unfinished') { row.W += qB; row.V += qP; }
+                else if (m.type === 'return' || notes.includes('مرتجع')) { row.N += qB; row.M += qP; }
+                else if (m.type === 'adjustment') { 
+                    if (m.reason?.includes('عجز') || m.reason?.includes('خصم')) { row.Y += qB; row.X += qP; } 
+                    else { row.L += qB; row.K += qP; } 
                 }
+                else if (m.type === 'in') { row.J += qP; row.rawProductionFromMovements += qB; }
+                else if (m.type === 'transfer' || m.type === 'out') { row.P += qB; row.O += qP; }
             }
         });
+
+        // 2. معالجة المبيعات (Sales)
         sales.forEach(s => {
-            const sDate = new Date(s.date); const item = s.items.find(i => i.id === product.id);
-            if (item) {
-                const impact = getImpact(item.quantity, item.quantityBulk || 0, item.quantityPacked || 0, 'sale', '');
-                if (sDate < startDate) { historicalChangeBulk += impact.bulk; historicalChangePacked += impact.packed; }
-                if (sDate >= startDate && sDate <= endDate) {
-                    const qB = Number(item.quantityBulk || 0), qP = Number(item.quantityPacked || 0);
-                    if (qB !== 0) categorize(item.quantity < 0 ? -Math.abs(qB) : Math.abs(qB), true, 'sale', '', item.salesType);
-                    if (qP !== 0) categorize(item.quantity < 0 ? -Math.abs(qP) : Math.abs(qP), false, 'sale', '', item.salesType);
-                    if (qB === 0 && qP === 0) categorize(item.quantity, isBulkItem, 'sale', '', item.salesType);
+            const item = s.items.find(i => i.id === product.id);
+            if (!item) return;
+            const sDate = new Date(s.date);
+            const { b: qB, pck: qP } = getParsedQty(item, product);
+            const sType = (item.salesType || '').toLowerCase();
+
+            if (sDate < startRange) {
+                row.G -= qB; row.H -= qP;
+            }
+            else if (sDate <= endRange) {
+                if (item.quantity < 0) { row.N += Math.abs(qB); row.M += Math.abs(qP); } 
+                else {
+                    if (sType.includes('مزارع')) { row.R += qB; row.Q += qP; }
+                    else if (sType.includes('منافذ')) { row.U += (qB + qP); }
+                    else { row.T += qB; row.S += qP; }
                 }
             }
         });
-        row.openingBulk = (product.stockBulk || 0) + historicalChangeBulk;
-        row.openingPacked = (product.stockPacked || 0) + historicalChangePacked;
-        const periodIn = row.prodBulk + row.receivedPacked + row.adjInPacked + row.adjInBulk + row.returnClientPacked + row.returnClientBulk;
-        const periodOut = row.transferPacked + row.transferBulk + row.salesFarmPacked + row.salesFarmBulk + row.salesClientPacked + row.salesClientBulk + row.outletTransfers + row.unfinishedPacked + row.unfinishedBulk + row.adjOutPacked + row.adjOutBulk;
-        row.totalBalance = (row.openingBulk + row.openingPacked) + periodIn - periodOut;
-        row.packedBalance = row.openingPacked + row.receivedPacked + row.adjInPacked + row.returnClientPacked - (row.transferPacked + row.salesFarmPacked + row.salesClientPacked + row.outletTransfers + row.unfinishedPacked + row.adjOutPacked);
-        row.siloRemains = row.totalBalance - row.openingCount;
-        row.diff = row.packedBalance - row.openingCount;
+
         return row;
     });
 
-    if (hideZeroRows) {
-        data = data.filter(row => Math.abs(row.totalBalance) > 0.001 || Math.abs(row.openingBulk) > 0.001 || Math.abs(row.openingPacked) > 0.001 || Math.abs(row.prodBulk) > 0.001);
-    }
+    return initialData.map(row => {
+        const link = linkages[row.product.id];
+        const prodFormula = link?.prodFormula || "";
+        const totalFormula = link?.totalFormula || "";
+        const parentId = link?.parentId;
+        const excelCtx: any = { ...row };
 
-    return data.filter(row => row.product.name.toLowerCase().includes(searchTerm.toLowerCase()) || row.product.barcode.includes(searchTerm));
-  }, [products, sales, movements, dateFilter, searchTerm, hideZeroRows]);
+        // حساب عمود الإنتاج I بنفس منطق الميزان
+        if (parentId) {
+            row.isChild = true;
+            row.I = prodFormula ? evaluateExcelFormula(prodFormula, excelCtx) : row.rawProductionFromMovements;
+        } else {
+            const childrenProduction = initialData
+                .filter(r => linkages[r.product.id]?.parentId === row.product.id)
+                .reduce((sum, r) => {
+                    const childLink = linkages[r.product.id];
+                    return sum + (childLink?.prodFormula ? evaluateExcelFormula(childLink.prodFormula, r) : r.rawProductionFromMovements);
+                }, 0);
+            row.isParent = childrenProduction > 0;
+            row.I = row.rawProductionFromMovements - childrenProduction;
+        }
+        excelCtx.I = row.I;
 
-  const handleExport = () => {
-    const headers = ['الصنف', 'أول صب', 'أول معبأ', 'إنتاج صب', 'الرصيد الكلي'];
-    const data = reportData.map(row => [row.product.name, row.openingBulk, row.openingPacked, row.prodBulk, row.totalBalance]);
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
-    XLSX.utils.book_append_sheet(wb, ws, "PeriodReport");
-    XLSX.writeFile(wb, `period_report_${dateFilter.end}.xlsx`);
-  };
-
-  const totals = useMemo(() => {
-    const t = { openingBulk: 0, openingPacked: 0, prodBulk: 0, receivedPacked: 0, adjInPacked: 0, adjInBulk: 0, returnClientPacked: 0, returnClientBulk: 0, transferPacked: 0, transferBulk: 0, salesFarmPacked: 0, salesFarmBulk: 0, salesClientPacked: 0, salesClientBulk: 0, outletTransfers: 0, unfinishedPacked: 0, unfinishedBulk: 0, adjOutPacked: 0, adjOutBulk: 0, totalBalance: 0, packedBalance: 0, openingCount: 0, emptySacks: 0, siloRemains: 0, diff: 0 };
-    reportData.forEach(r => { Object.keys(t).forEach(k => (t as any)[k] += (r as any)[k]); });
-    return t;
-  }, [reportData]);
-
-  useLayoutEffect(() => {
-    const measure = () => { if (tableRef.current) { const ths = tableRef.current.querySelectorAll('thead th'); setColWidths(Array.from(ths).map(th => (th as HTMLElement).getBoundingClientRect().width)); } };
-    const timer = setTimeout(measure, 100);
-    window.addEventListener('resize', measure);
-    return () => { window.removeEventListener('resize', measure); clearTimeout(timer); };
-  }, [reportData, tableStyles]);
-
-  const getSticky = (cIdx: number, rIdx: number, bg: string = '#fff') => {
-    const isC = cIdx < frozenCols;
-    if (!isC) return {};
-    const s: React.CSSProperties = { position: 'sticky', right: `${colWidths.slice(0, cIdx).reduce((a, b) => a + b, 0)}px`, zIndex: 10, backgroundColor: bg };
-    return s;
-  };
-
-  const handleImportTrigger = () => fileInputRef.current?.click();
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    alert("الاستيراد قيد التطوير لهذا التقرير.");
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const headers = [ t('code'), t('item'), t('unit'), 'رصيد أول صب (نهاية مسبقة)', 'رصيد أول معبأ (نهاية مسبقة)', 'إنتاج صب', 'استلامات معبأ', 'تسوية(+) معبأ', 'تسوية(+) صب', 'مرتجع معبأ', 'مرتجع صب', 'تحويل معبأ', 'تحويل صب', 'مزارع معبأ', 'مزارع صب', 'عملاء معبأ', 'عملاء صب', 'منافذ', 'غير تام معبأ', 'غير تام صب', 'تسوية(-) معبأ', 'تسوية(-) صب', 'الرصيد الكلي', 'رصيد المعبأ', 'جرد اليوم', 'وزن الشكارة', 'الشكاير', 'متبقى صوامع', 'الفرق' ];
+        // حساب الرصيد النهائي Z المجمع
+        if (totalFormula) {
+            row.Z = evaluateExcelFormula(totalFormula, excelCtx);
+        } else {
+            row.Z = (row.G + row.H + row.I + row.J + row.K + row.L + row.M + row.N) - (row.O + row.P + row.Q + row.R + row.S + row.T + row.U + row.V + row.W + row.X + row.Y);
+        }
+        
+        return row;
+    }).filter(row => !hideZeroRows || Math.abs(row.Z) > 0.001).filter(row => row.product.name.includes(searchTerm));
+  }, [products, searchTerm, hideZeroRows, activeCategory, linkages, dateFilter]);
 
   return (
-    <div className="space-y-4 animate-fade-in" dir="rtl">
-        {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="finished" />}
-        
-        <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => setTableStyles(DEFAULT_STYLES)} />
-
-        <div className="bg-[#f3f4f6] p-2 rounded-xl border border-gray-300 shadow-sm flex flex-col gap-2 no-print select-none">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-2">
-                <div className="flex gap-2 items-center">
-                    <ReportActionsBar 
-                        onPrint={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')}
-                        onExport={handleExport}
-                        onImport={handleImportTrigger}
-                        onSettings={() => setShowPrintModal(true)}
-                    />
-                    <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".xlsx,.xls" />
-                    <button 
-                        onClick={() => setHideZeroRows(!hideZeroRows)}
-                        className={`px-4 h-[42px] rounded-lg font-bold border transition-all flex items-center gap-2 text-sm ${hideZeroRows ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-600'}`}
-                    >
-                        {hideZeroRows ? <EyeOff size={18}/> : <Eye size={18}/>}
-                        <span className="hidden md:inline">{hideZeroRows ? 'إظهار الصفري' : 'إخفاء الصفري'}</span>
-                    </button>
+    <div className="space-y-6 animate-fade-in font-cairo" dir="rtl">
+        <div className="bg-[#1e293b] rounded-[3rem] p-10 shadow-2xl relative overflow-hidden flex flex-col xl:flex-row items-center justify-between gap-10 border-b-[10px] border-indigo-600">
+            <div className="absolute top-0 right-0 w-80 h-full bg-indigo-500/10 blur-[100px] pointer-events-none"></div>
+            
+            <div className="flex items-center gap-8 relative z-10">
+                <div className="p-5 bg-white/10 rounded-[2.5rem] backdrop-blur-2xl border border-white/20 text-yellow-400 shadow-2xl transform hover:rotate-6 transition-transform">
+                    <History size={48} strokeWidth={2.5}/>
+                </div>
+                <div>
+                    <h1 className="text-4xl font-black text-white mb-3 tracking-tight">تقرير حركة المنتج التام</h1>
+                    <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                        <button onClick={() => setActiveCategory('أعلاف')} className={`px-8 py-2 rounded-xl text-xs font-black transition-all ${activeCategory === 'أعلاف' ? 'bg-white text-indigo-900 shadow-xl scale-105' : 'text-white/40 hover:text-white'}`}>قطاع الأعلاف</button>
+                        <button onClick={() => setActiveCategory('بيوتولوجى')} className={`px-8 py-2 rounded-xl text-xs font-black transition-all ${activeCategory === 'بيوتولوجى' ? 'bg-white text-amber-900 shadow-xl scale-105' : 'text-white/40 hover:text-white'}`}>بيوتولوجى</button>
+                    </div>
                 </div>
             </div>
 
-            <div className="flex-1 flex gap-2 pt-1">
-                <input className="flex-1 px-3 py-1 border rounded text-sm outline-none font-bold" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                <input type="date" value={dateFilter.start} onChange={e => setDateFilter({...dateFilter, start: e.target.value})} className="px-2 border rounded text-xs font-bold" style={forceEnNumsStyle}/>
-                <input type="date" value={dateFilter.end} onChange={e => setDateFilter({...dateFilter, end: e.target.value})} className="px-2 border rounded text-xs font-bold" style={forceEnNumsStyle}/>
+            <div className="flex flex-wrap items-center justify-center gap-6 relative z-10">
+                <div className="flex items-center bg-black/40 p-3 rounded-[2.5rem] border border-white/10 backdrop-blur-md shadow-2xl overflow-hidden">
+                    <div className="px-8 border-l border-white/10 text-center group">
+                        <label className="block text-[10px] font-black text-indigo-300 mb-1 uppercase tracking-widest group-hover:text-white transition-colors">من تاريخ</label>
+                        <input type="date" value={dateFilter.start} onChange={e => setDateFilter({...dateFilter, start: e.target.value})} className="bg-transparent text-white font-black outline-none text-[15px]" style={forceEnNumsStyle}/>
+                    </div>
+                    <div className="px-8 text-center group">
+                        <label className="block text-[10px] font-black text-indigo-300 mb-1 uppercase tracking-widest group-hover:text-white transition-colors">إلى تاريخ</label>
+                        <input type="date" value={dateFilter.end} onChange={e => setDateFilter({...dateFilter, end: e.target.value})} className="bg-transparent text-white font-black outline-none text-[15px]" style={forceEnNumsStyle}/>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <button onClick={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')} className="bg-white text-slate-900 px-8 py-4 rounded-[1.5rem] font-black text-sm shadow-2xl hover:bg-yellow-400 hover:scale-105 transition-all flex items-center gap-3 active:scale-95 border-b-4 border-slate-200">
+                        <Printer size={20}/> طباعة التقرير
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div className="relative w-full overflow-hidden rounded-xl shadow-xl border border-gray-300 bg-white">
-            <div className="overflow-auto max-h-[75vh]">
-                <table className="w-full text-center min-w-[3500px] border-collapse" ref={tableRef}>
-                    <thead className="bg-[#1f2937] text-white font-cairo sticky top-0 z-40">
-                        <tr>
-                            {headers.map((h, i) => (
-                                <th key={i} className="p-3 border border-gray-600 whitespace-nowrap" style={{...getSticky(i, 0, '#1f2937'), ...getCellStyle()}}>{h}</th>
-                            ))}
-                            <th className="p-3 border border-gray-600 bg-gray-800 z-50" style={getCellStyle()}>إجراءات</th>
+        <div className="flex items-center justify-between gap-6 bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-xl no-print">
+            <div className="flex-1 relative max-w-3xl group">
+                <input className="w-full pr-14 pl-6 py-4 rounded-[1.5rem] border-2 border-slate-50 bg-slate-50/50 outline-none focus:border-indigo-500 focus:bg-white transition-all font-black text-md shadow-inner" placeholder="بحث سريع في بيانات التقرير..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <Search className="absolute right-5 top-4.5 text-slate-300 group-focus-within:text-indigo-500 transition-colors" size={24} />
+            </div>
+            <div className="flex items-center gap-3">
+                <div className="relative group">
+                    <button className="px-6 h-14 rounded-[1.2rem] font-black border-2 border-slate-100 bg-white text-slate-700 transition-all flex items-center gap-2 text-sm hover:border-indigo-200">
+                        <ZoomIn size={20}/> {pageScale}%
+                        <ChevronDown size={14}/>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-32 animate-fade-in">
+                        {[100, 90, 80, 70, 60, 50].map(s => (
+                            <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                        ))}
+                    </div>
+                </div>
+                <GlassButton onClick={() => setHideZeroRows(!hideZeroRows)} className="h-14 px-8 border-2 border-slate-100 bg-white rounded-[1.2rem]">
+                    {hideZeroRows ? <EyeOff size={22} className="text-orange-500" /> : <Eye size={22} className="text-blue-500" />}
+                    <span className="text-sm font-black">{hideZeroRows ? 'إظهار الصفري' : 'إخفاء الصفري'}</span>
+                </GlassButton>
+            </div>
+        </div>
+
+        <div className="bg-white rounded-[3.5rem] border-2 border-black shadow-premium overflow-hidden">
+            <div 
+                className="overflow-x-auto max-h-[65vh] origin-top-right transition-all duration-300"
+                style={{ zoom: pageScale / 100 }}
+            >
+                <table className="w-full text-center border-collapse min-w-[2800px]" ref={tableRef}>
+                    <thead className="bg-slate-900 text-yellow-400 h-16 sticky top-0 z-40 shadow-lg">
+                        <tr className="text-[11px] font-black uppercase">
+                            <th className="p-3 border border-slate-700 w-16">م</th>
+                            <th className="p-3 border border-slate-700 text-right pr-8 min-w-[350px]">اسم الصنف</th>
+                            <th className="p-3 border border-slate-700 bg-indigo-950/80">أول صب (G)</th>
+                            <th className="p-3 border border-slate-700 bg-indigo-950/80">أول معبأ (H)</th>
+                            <th className="p-3 border border-slate-700 text-blue-300">الإنتاج (I)</th>
+                            <th className="p-3 border border-slate-700 text-emerald-300">وارد معبأ (J)</th>
+                            <th className="p-3 border border-slate-700">تسوية (+)</th>
+                            <th className="p-3 border border-slate-700 text-rose-300">مرتجعات</th>
+                            <th className="p-3 border border-slate-700 text-orange-300">التحويلات (-)</th>
+                            <th className="p-3 border border-slate-700 text-blue-200">مزارع (-)</th>
+                            <th className="p-3 border border-slate-700 text-indigo-200">عملاء (-)</th>
+                            <th className="p-3 border border-slate-700">منافذ (-)</th>
+                            <th className="p-3 border border-slate-700">غير تام (-)</th>
+                            <th className="p-3 border border-slate-700 text-red-300">عجز (-)</th>
+                            <th className="p-3 border border-slate-700 bg-blue-900 text-white font-black text-xl">الرصيد الكلي (Z)</th>
                         </tr>
                     </thead>
-                    <tbody className="text-gray-700">
+                    <tbody className="text-[13px] font-bold text-slate-700">
                         {reportData.map((row, idx) => (
-                            <tr key={row.product.id} className="border-b hover:bg-blue-50 transition-colors bg-white h-12">
-                                <td className="p-2 border bg-gray-50" style={{...getSticky(0, idx+1, '#f9fafb'), ...getCellStyle(true)}}>{row.product.barcode}</td>
-                                <td className="p-2 border text-right min-w-[200px] bg-white" style={{...getSticky(1, idx+1, '#fff'), ...getCellStyle()}}>{row.product.name}</td>
-                                <td className="p-2 border bg-white" style={{...getSticky(2, idx+1, '#fff'), ...getCellStyle()}}>{row.product.unit}</td>
-                                <td className="p-2 border bg-yellow-50 text-blue-900 font-bold" style={getCellStyle(true)}>{formatEng(row.openingBulk)}</td>
-                                <td className="p-2 border bg-yellow-50 text-blue-900 font-bold" style={getCellStyle(true)}>{formatEng(row.openingPacked)}</td>
-                                <td className="p-2 border text-green-700" style={getCellStyle(true)}>{formatEng(row.prodBulk)}</td>
-                                <td className="p-2 border text-green-700" style={getCellStyle(true)}>{formatEng(row.receivedPacked)}</td>
-                                <td className="p-2 border text-green-600" style={getCellStyle(true)}>{formatEng(row.adjInPacked)}</td>
-                                <td className="p-2 border text-green-600" style={getCellStyle(true)}>{formatEng(row.adjInBulk)}</td>
-                                <td className="p-2 border text-red-500" style={getCellStyle(true)}>{formatEng(row.returnClientPacked)}</td>
-                                <td className="p-2 border text-red-500" style={getCellStyle(true)}>{formatEng(row.returnClientBulk)}</td>
-                                <td className="p-2 border text-orange-600" style={getCellStyle(true)}>{formatEng(row.transferPacked)}</td>
-                                <td className="p-2 border text-orange-600" style={getCellStyle(true)}>{formatEng(row.transferBulk)}</td>
-                                <td className="p-2 border text-blue-600" style={getCellStyle(true)}>{formatEng(row.salesFarmPacked)}</td>
-                                <td className="p-2 border text-blue-600" style={getCellStyle(true)}>{formatEng(row.salesFarmBulk)}</td>
-                                <td className="p-2 border text-purple-600" style={getCellStyle(true)}>{formatEng(row.salesClientPacked)}</td>
-                                <td className="p-2 border text-purple-600" style={getCellStyle(true)}>{formatEng(row.salesClientBulk)}</td>
-                                <td className="p-2 border text-indigo-800" style={getCellStyle(true)}>{formatEng(row.outletTransfers)}</td>
-                                <td className="p-2 border bg-gray-100" style={getCellStyle(true)}>{formatEng(row.unfinishedPacked)}</td>
-                                <td className="p-2 border bg-gray-100" style={getCellStyle(true)}>{formatEng(row.unfinishedBulk)}</td>
-                                <td className="p-2 border text-red-600" style={getCellStyle(true)}>{formatEng(row.adjOutPacked)}</td>
-                                <td className="p-2 border text-red-600" style={getCellStyle(true)}>{formatEng(row.adjOutBulk)}</td>
-                                <td className="p-2 border bg-blue-100 text-blue-900 shadow-inner font-black" style={getCellStyle(true)}>{formatEng(row.totalBalance)}</td>
-                                <td className="p-2 border bg-indigo-100 text-indigo-900 shadow-inner font-black" style={getCellStyle(true)}>{formatEng(row.packedBalance)}</td>
-                                <td className="p-2 border bg-orange-50" style={getCellStyle(true)}>{formatEng(row.openingCount)}</td>
-                                <td className="p-2 border bg-white" style={getCellStyle()}>{row.sackWeight}</td>
-                                <td className="p-2 border bg-white" style={getCellStyle(true)}>{formatEng(row.emptySacks)}</td>
-                                <td className="p-2 border text-gray-800" style={getCellStyle(true)}>{formatEng(row.siloRemains)}</td>
-                                <td className="p-2 border text-red-700" style={getCellStyle(true)}>{formatEng(row.diff)}</td>
-                                <td className="p-2 border bg-white text-center">
-                                    {!isViewOnly && isAdmin && <button onClick={() => setDeleteId(row.product.id)} className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"><Trash2 size={18}/></button>}
+                            <tr key={row.product.id} className={`border-b border-black h-12 hover:bg-indigo-50/50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                                <td className="p-2 border" style={forceEnNumsStyle}>{idx + 1}</td>
+                                <td className="p-2 border text-right pr-8 font-black text-slate-900 text-md">{row.product.name}</td>
+                                <td className="p-2 border bg-yellow-50/20" style={forceEnNumsStyle}>{formatEng(row.G)}</td>
+                                <td className="p-2 border bg-yellow-50/40" style={forceEnNumsStyle}>{formatEng(row.H)}</td>
+                                <td className={`p-2 border ${row.isChild ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200' : (row.isParent ? 'bg-orange-50' : 'text-blue-700')}`} style={forceEnNumsStyle}>
+                                    <div className="flex items-center justify-center gap-1">
+                                        {formatEng(row.I)}
+                                        {row.isChild && <LinkIcon size={12} />}
+                                    </div>
                                 </td>
+                                <td className="p-2 border text-emerald-700" style={forceEnNumsStyle}>{formatEng(row.J)}</td>
+                                <td className="p-2 border" style={forceEnNumsStyle}>{formatEng(row.K + row.L)}</td>
+                                <td className="p-2 border text-rose-600" style={forceEnNumsStyle}>{formatEng(row.M + row.N)}</td>
+                                <td className="p-2 border text-orange-600" style={forceEnNumsStyle}>{formatEng(row.O + row.P)}</td>
+                                <td className="p-2 border text-blue-600" style={forceEnNumsStyle}>{formatEng(row.Q + row.R)}</td>
+                                <td className="p-2 border text-indigo-600" style={forceEnNumsStyle}>{formatEng(row.S + row.T)}</td>
+                                <td className="p-2 border" style={forceEnNumsStyle}>{formatEng(row.U)}</td>
+                                <td className="p-2 border text-slate-400" style={forceEnNumsStyle}>{formatEng(row.V + row.W)}</td>
+                                <td className="p-2 border text-red-600" style={forceEnNumsStyle}>{formatEng(row.X + row.Y)}</td>
+                                <td className="p-2 border bg-indigo-900 text-white font-black text-xl shadow-inner" style={forceEnNumsStyle}>{formatEng(row.Z)}</td>
                             </tr>
                         ))}
-                        {reportData.length === 0 && (
-                            <tr><td colSpan={30} className="p-10 text-center text-gray-400">لا توجد أصناف مطابقة للبحث أو رصيدها غير صفري</td></tr>
-                        )}
-                        <tr className="bg-[#1f2937] text-yellow-300 shadow-inner sticky bottom-0 z-30 font-bold">
-                            <td colSpan={3} className="p-3" style={{...getSticky(0, reportData.length+1, '#1f2937'), ...getCellStyle()}}>إجمالي الفترة المختارة</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.openingBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.openingPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.prodBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.receivedPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.adjInPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.adjInBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.returnClientPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.returnClientBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.transferPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.transferBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.salesFarmPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.salesFarmBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.salesClientPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.salesClientBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.outletTransfers)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.unfinishedPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.unfinishedBulk)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.adjOutPacked)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.adjOutBulk)}</td>
-                            <td className="p-2 border border-gray-600 bg-blue-800 text-white" style={getCellStyle(true)}>{formatEng(totals.totalBalance)}</td>
-                            <td className="p-2 border border-gray-600 bg-indigo-800 text-white" style={getCellStyle(true)}>{formatEng(totals.packedBalance)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.openingCount)}</td>
-                            <td className="p-2 border border-gray-600">-</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.emptySacks)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.siloRemains)}</td>
-                            <td className="p-2 border border-gray-600" style={getCellStyle(true)}>{formatEng(totals.diff)}</td>
-                            <td className="p-2 border border-gray-600"></td>
-                        </tr>
                     </tbody>
                 </table>
             </div>
         </div>
-
-        <ConfirmModal isOpen={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if(deleteId) { deleteProduct(deleteId); refreshProducts(); setDeleteId(null); } }} title="حذف صنف" message="هل تريد حذف الصنف نهائياً؟" confirmText="حذف" cancelText="إلغاء" />
+        <ConfirmModal isOpen={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if (deleteId) { deleteProduct(deleteId); refreshProducts(); setDeleteId(null); } }} title="حذف صنف" message="هل تريد حذف الصنف نهائياً؟" confirmText="حذف" cancelText="تراجع" />
     </div>
   );
 };

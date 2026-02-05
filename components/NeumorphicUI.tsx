@@ -56,12 +56,22 @@ export const GlassInput: React.FC<InputProps> = ({ label, className = '', ...pro
   </div>
 );
 
-// Toast Component
+// --- Toast Component Updated with Auto-Dismiss Logic ---
 export const Toast: React.FC<{ 
   message: string, 
   type: 'success' | 'error' | 'info' | 'warning', 
   onClose: () => void 
 }> = ({ message, type, onClose }) => {
+  
+  // الإغلاق التلقائي بعد 5 ثوانٍ
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 5000);
+
+    return () => clearTimeout(timer); // تنظيف التوقيت عند إلغاء المكون
+  }, [onClose]);
+
   const iconMap = {
     success: <Check className="text-emerald-500" />,
     error: <X className="text-rose-500" />,
@@ -99,7 +109,7 @@ export const ToastContainer: React.FC<{
   onRemove: (id: string) => void 
 }> = ({ notifications, onRemove }) => (
   <div className="fixed bottom-6 left-6 z-[10000] flex flex-col gap-3 pointer-events-none">
-    <AnimatePresence>
+    <AnimatePresence mode="popLayout">
       {notifications.map(n => (
         <Toast key={n.id} message={n.message} type={n.type} onClose={() => onRemove(n.id)} />
       ))}

@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
-import { Search, Edit2, Check, X, Plus, FileDown, Save, Tag, Settings as SettingsIcon, Layout, Columns, Rows, ShoppingCart, Eye, EyeOff, AlertCircle, FileUp } from 'lucide-react';
+import { Search, Edit2, Check, X, Plus, FileDown, Save, Tag, Settings as SettingsIcon, Layout, Columns, Rows, ShoppingCart, Eye, EyeOff, AlertCircle, FileUp, Trash2, PlusCircle, Warehouse, Hash, Package, ZoomIn, ChevronDown } from 'lucide-react';
 import { TableToolbar } from './TableToolbar';
 import { ReportActionsBar } from './ReportActionsBar';
 import { printService } from '../services/printing';
 import { PrintSettingsModal } from './PrintSettingsModal';
-import { GlassCard, GlassInput, InputModal } from './NeumorphicUI';
+import { GlassCard, GlassInput, ConfirmModal } from './NeumorphicUI';
 import { Product, Purchase, WarehouseType } from '../types';
+import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 
 const DEFAULT_STYLES = {
@@ -32,14 +33,30 @@ const forceEnNumsStyle = {
 };
 
 export const PartsLedger: React.FC = () => {
-    const { settings, refreshProducts, user, products: allProducts, updateSettings, t } = useApp();
+    const { settings, refreshProducts, user, products: allProducts, updateSettings, t, deleteProduct } = useApp();
     const [searchTerm, setSearchTerm] = useState('');
     const [hideZeroRows, setHideZeroRows] = useState(false);
     const [showPrintModal, setShowPrintModal] = useState(false);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [pageScale, setPageScale] = useState(100); 
     const tableRef = useRef<HTMLTableElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const isAdmin = user?.role === 'admin';
+
+    const [newProductForm, setNewProductForm] = useState<Partial<Product>>({
+        name: '',
+        barcode: '',
+        unit: 'عدد',
+        category: 'قطع غيار',
+        initialStockBulk: 0,
+        minStock: 5,
+        reorderPoint: 10,
+        maxStock: 50,
+        warehouse: 'parts',
+        goodsGroup: 'قطع غيار ومهمات'
+    });
 
     const [frozenCols, setFrozenCols] = useState(() => {
         const saved = localStorage.getItem('glasspos_partsledger_frozenCols');
@@ -200,6 +217,34 @@ export const PartsLedger: React.FC = () => {
         setEditingLimit(null);
     };
 
+    const handleSaveNewProduct = () => {
+        if (!newProductForm.name || !newProductForm.barcode) {
+            alert('يرجى إكمال البيانات الأساسية (الاسم والباركود)');
+            return;
+        }
+        
+        const opening = Number(newProductForm.initialStockBulk) || 0;
+        const product: Product = {
+            ...newProductForm as Product,
+            id: `PART-${Date.now()}`,
+            stock: opening,
+            stockBulk: opening,
+            stockPacked: 0,
+            price: 0,
+            cost: 0,
+            warehouse: 'parts'
+        };
+
+        dbService.saveProduct(product);
+        refreshProducts();
+        setIsAddModalOpen(false);
+        setNewProductForm({
+            name: '', barcode: '', unit: 'عدد', category: 'قطع غيار',
+            initialStockBulk: 0, minStock: 5, reorderPoint: 10, maxStock: 50, warehouse: 'parts', goodsGroup: 'قطع غيار ومهمات'
+        });
+        alert('تم إضافة الصنف الجديد بنجاح');
+    };
+
     const handleExport = () => {
         try {
             const headers = ["م", "كود الصنف", "اسم الصنف", "الوحدة", "رصيد أول", "وارد", "منصرف", "مرتجع", "تسوية (+)", "تسوية (-)", "تحويل (+)", "تحويل (-)", "الرصيد الحالي"];
@@ -282,7 +327,6 @@ export const PartsLedger: React.FC = () => {
             } catch (err) {
                 alert('حدث خطأ في قراءة ملف Excel');
             }
-            // تصفير المدخل للسماح بإعادة الاختيار
             if (e.target) e.target.value = '';
         };
         reader.readAsArrayBuffer(file);
@@ -334,15 +378,34 @@ export const PartsLedger: React.FC = () => {
         };
     };
 
+    const handleDeleteProduct = () => {
+        if (deleteId) {
+            deleteProduct(deleteId);
+            refreshProducts();
+            setDeleteId(null);
+        }
+    };
+
     return (
         <div className="space-y-4 animate-fade-in font-cairo" dir="rtl">
             {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="parts_ledger" />}
+            <ConfirmModal 
+                isOpen={!!deleteId} 
+                onClose={() => setDeleteId(null)} 
+                onConfirm={handleDeleteProduct} 
+                title="حذف صنف" 
+                message="هل أنت متأكد من حذف الصنف؟ سيتم مسح أرصدته وبياناته نهائياً." 
+                confirmText="حذف" 
+                cancelText="إلغاء" 
+            />
             
             <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => { setTableStyles(DEFAULT_STYLES); setFrozenCols(3); setFrozenRows(1); }} />
 
             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2 no-print">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                     <ReportActionsBar 
+                        onNewEntry={() => setIsAddModalOpen(true)}
+                        newEntryLabel="إضافة صنف جديد"
                         onPrint={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')}
                         onExport={handleExport}
                         onImport={() => fileInputRef.current?.click()}
@@ -353,16 +416,32 @@ export const PartsLedger: React.FC = () => {
                     />
                     <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls" onChange={handleImport} />
                     
-                    <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200 shadow-inner">
-                        <Layout size={16} className="text-blue-600"/>
-                        <span className="text-[10px] font-black uppercase">تثبيت النوافذ:</span>
-                        <div className="flex items-center gap-2 border-r pr-3">
-                            <Columns size={14}/>
-                            <span className="text-xs font-bold">أعمدة:</span>
-                            <div className="flex bg-white border rounded overflow-hidden">
-                                <button onClick={() => setFrozenCols(Math.max(0, frozenCols - 1))} className="px-2 hover:bg-gray-100">-</button>
-                                <span className="px-2 font-bold text-blue-800">{frozenCols}</span>
-                                <button onClick={() => setFrozenCols(Math.min(10, frozenCols + 1))} className="px-2 hover:bg-gray-100">+</button>
+                    <div className="flex items-center gap-3">
+                        {/* Zoom Scale Button */}
+                        <div className="relative group">
+                            <button className="px-4 h-[42px] rounded-lg font-black border bg-white border-slate-300 text-slate-700 transition-all flex items-center gap-2 text-xs hover:bg-slate-50 shadow-sm">
+                                <ZoomIn size={18}/>
+                                <span>حجم العرض: {pageScale}%</span>
+                                <ChevronDown size={14}/>
+                            </button>
+                            <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-32 animate-fade-in">
+                                {[100, 90, 80, 70, 60, 50].map(s => (
+                                    <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200 shadow-inner">
+                            <Layout size={16} className="text-blue-600"/>
+                            <span className="text-[10px] font-black uppercase">تثبيت النوافذ:</span>
+                            <div className="flex items-center gap-2 border-r pr-3">
+                                <Columns size={14}/>
+                                <span className="text-xs font-bold">أعمدة:</span>
+                                <div className="flex bg-white border rounded overflow-hidden">
+                                    <button onClick={() => setFrozenCols(Math.max(0, frozenCols - 1))} className="px-2 hover:bg-gray-100">-</button>
+                                    <span className="px-2 font-bold text-blue-800">{frozenCols}</span>
+                                    <button onClick={() => setFrozenCols(Math.min(10, frozenCols + 1))} className="px-2 hover:bg-gray-100">+</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -374,7 +453,10 @@ export const PartsLedger: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-xl shadow-premium border border-slate-300 overflow-hidden">
-                <div className="overflow-auto max-h-[65vh] relative">
+                <div 
+                    className="overflow-auto max-h-[65vh] relative transition-all duration-300 origin-top-right"
+                    style={{ zoom: pageScale / 100 }}
+                >
                     <table className="w-full border-collapse min-w-[3500px]" ref={tableRef}>
                         <thead>
                             <tr className="bg-slate-900 text-white font-bold h-12">
@@ -388,6 +470,7 @@ export const PartsLedger: React.FC = () => {
                                         <div onMouseDown={(e) => onMouseDownResizeCol(i, e)} className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-blue-400/50 transition-colors z-50"/>
                                     </th>
                                 ))}
+                                <th className="p-2 border border-slate-700 bg-red-900 text-white text-center sticky left-0 z-50 w-[50px] min-w-[50px]">سلة</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -438,12 +521,87 @@ export const PartsLedger: React.FC = () => {
                                             {row.balance <= row.min ? 'تحت الحد' : (row.balance <= row.reorder ? 'تحت الطلب' : 'آمن')}
                                         </span>
                                     </td>
+                                    <td className="p-2 border text-center sticky left-0 z-40 bg-white w-[50px] min-w-[50px]">
+                                        <button 
+                                            onClick={() => setDeleteId(row.id)}
+                                            className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-all"
+                                            title="حذف صنف"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
             </div>
+
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-cairo">
+                    <GlassCard className="w-full max-w-3xl relative bg-white border-t-8 border-indigo-600 p-8 shadow-2xl rounded-[3rem] overflow-y-auto max-h-[90vh]">
+                        <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 left-6 text-gray-400 hover:text-red-500 transition-all transform hover:rotate-90"><X size={32}/></button>
+                        <h3 className="text-3xl font-black mb-8 text-right text-indigo-900 border-b-4 border-indigo-50 pb-4 flex items-center gap-3">
+                            <PlusCircle size={32} className="text-indigo-600"/> إضافة صنف جديد لمخزن قطع الغيار
+                        </h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8" dir="rtl">
+                            <div className="md:col-span-2">
+                                <GlassInput label="اسم الصنف الكامل (إلزامي)" value={newProductForm.name} onChange={e => setNewProductForm({...newProductForm, name: e.target.value})} placeholder="مثال: فلتر زيت أصلي - رمان بلي 6005..." className="text-lg font-black" />
+                            </div>
+                            <GlassInput label="كود ثانوي / باركود (إلزامي)" value={newProductForm.barcode} onChange={e => setNewProductForm({...newProductForm, barcode: e.target.value})} placeholder="أدخل كود الصنف..." />
+                            
+                            <div className="flex flex-col gap-2">
+                                <label className="text-slate-500 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Tag size={14}/> تصنيف الصنف</label>
+                                <select 
+                                    className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-slate-50 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 transition-all shadow-inner" 
+                                    value={newProductForm.category} 
+                                    onChange={e => setNewProductForm({...newProductForm, category: e.target.value})}
+                                >
+                                    {settings.categories?.filter(c => c.includes('قطع') || c.includes('زيوت') || c.includes('فلاتر') || c.includes('مهمات')).map(c => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                    <option value="قطع غيار">قطع غيار</option>
+                                    <option value="زيوت وفلاتر">زيوت وفلاتر</option>
+                                    <option value="مهمات عامة">مهمات عامة</option>
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <label className="text-slate-500 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Package size={14}/> الوحدة</label>
+                                <select 
+                                    className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-slate-50 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 transition-all shadow-inner" 
+                                    value={newProductForm.unit} 
+                                    onChange={e => setNewProductForm({...newProductForm, unit: e.target.value})}
+                                >
+                                    {settings.units?.map(u => <option key={u} value={u}>{u}</option>)}
+                                    <option value="عدد">عدد</option>
+                                    <option value="قطعة">قطعة</option>
+                                    <option value="طقم">طقم</option>
+                                    <option value="لتر">لتر</option>
+                                </select>
+                            </div>
+
+                            <GlassInput label="رصيد أول جرد (ثابت)" type="number" step="any" value={newProductForm.initialStockBulk?.toString()} onChange={e => setNewProductForm({...newProductForm, initialStockBulk: parseFloat(e.target.value) || 0})} />
+                            
+                            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4 bg-blue-50/50 p-6 rounded-[2rem] border-2 border-blue-100 shadow-inner">
+                                <h4 className="md:col-span-3 text-blue-800 font-black text-sm flex items-center gap-2"><Hash size={16}/> حدود الرصيد للتنبيهات</h4>
+                                <GlassInput label="الحد الأدنى" type="number" value={newProductForm.minStock?.toString()} onChange={e => setNewProductForm({...newProductForm, minStock: parseInt(e.target.value) || 0})} />
+                                <GlassInput label="حد الطلب" type="number" value={newProductForm.reorderPoint?.toString()} onChange={e => setNewProductForm({...newProductForm, reorderPoint: parseInt(e.target.value) || 0})} />
+                                <GlassInput label="الحد الأقصى" type="number" value={newProductForm.maxStock?.toString()} onChange={e => setNewProductForm({...newProductForm, maxStock: parseInt(e.target.value) || 0})} />
+                            </div>
+                        </div>
+
+                        <div className="mt-12 flex gap-4">
+                            <button onClick={handleSaveNewProduct} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-6 rounded-3xl font-black text-2xl shadow-xl flex items-center justify-center gap-4 transition-all active:scale-95 border-b-8 border-indigo-900">
+                                <Save size={32}/> ترحيل وحفظ الصنف الجديد
+                            </button>
+                            <button onClick={() => setIsAddModalOpen(false)} className="px-10 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 transition-colors">إلغاء</button>
+                        </div>
+                    </GlassCard>
+                </div>
+            )}
+
             {editingLimit && <div className="fixed bottom-4 left-4 bg-indigo-600 text-white p-3 rounded-xl shadow-2xl flex items-center gap-3 animate-bounce-in z-[100] font-bold"><Edit2 size={16}/> جاري التعديل... اضغط Enter للحفظ</div>}
         </div>
     );

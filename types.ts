@@ -1,25 +1,60 @@
 
-export type Role = 'admin' | 'cashier';
+export type Role = 'admin' | 'cashier' | 'supervisor' | string;
 
-export type PermissionLevel = 'edit' | 'view' | 'hidden';
+export type PermissionLevel = 'edit' | 'available' | 'hidden';
 
 export interface UserPermissions {
     screens: {
-        dashboard?: PermissionLevel;
-        finished?: PermissionLevel;
-        raw?: PermissionLevel;
-        general?: PermissionLevel;
-        purchases?: PermissionLevel;
-        sales?: PermissionLevel;
-        reports?: PermissionLevel;
-        monthly_reports?: PermissionLevel;
-        settings?: PermissionLevel;
+        // القائمة الجانبية والشاشة الرئيسية
+        sb_home?: PermissionLevel;
+        sb_purchases?: PermissionLevel;
+        sb_sales?: PermissionLevel;
+        sb_finished?: PermissionLevel;
+        sb_raw?: PermissionLevel;
+        sb_general?: PermissionLevel;
+        sb_monthly_reports?: PermissionLevel;
+        sb_settings?: PermissionLevel;
+        sb_expenses?: PermissionLevel;
+        m_dashboard?: PermissionLevel;
+        [key: string]: PermissionLevel | undefined;
+    };
+    features: {
+        // شاشة المبيعات
+        new_sale?: PermissionLevel;
+        edit_invoice?: PermissionLevel;
+        invoice_log?: PermissionLevel;
+        logistics_pulse?: PermissionLevel;
+        reports_panel?: PermissionLevel;
+        // شاشة المشتريات
+        new_purchase?: PermissionLevel;
+        purchase_log?: PermissionLevel;
+        receive_supply?: PermissionLevel;
+        purchase_reports?: PermissionLevel;
+        purchase_return?: PermissionLevel;
+        // مخزن المنتج التام
+        f_balances?: PermissionLevel;
+        f_prod_receipt?: PermissionLevel;
+        f_settlements?: PermissionLevel;
+        f_returns?: PermissionLevel;
+        f_opening_stock?: PermissionLevel;
+        // مخزن الخامات
+        r_raw_in?: PermissionLevel;
+        r_silo_trans?: PermissionLevel;
+        r_control_out?: PermissionLevel;
+        r_shortage?: PermissionLevel;
+        r_composite_balances?: PermissionLevel;
+        // المخازن العامة
+        g_parts?: PermissionLevel;
+        g_catering?: PermissionLevel;
+        g_custody?: PermissionLevel;
         [key: string]: PermissionLevel | undefined;
     };
     actions: {
         canImport: boolean;
         canExport: boolean;
-        canDelete?: boolean;
+        canDelete: boolean;
+        canEditSettings: boolean;
+        canManageCloudLists: boolean;
     };
 }
 
@@ -28,6 +63,8 @@ export interface SystemUser {
   username: string;
   role: Role;
   name: string;
+  email?: string;
+  jobTitle?: string;
   password?: string;
   permissions?: UserPermissions;
   lastActive?: string;
@@ -61,7 +98,6 @@ export interface Product {
   customFields?: Record<string, string>;
   goodsGroup?: string; 
   housingOfficer?: string;
-  /** Fix: Add missing notes property used in RawBalancesTable and other components */
   notes?: string;
 }
 
@@ -132,9 +168,7 @@ export interface StockMovement {
       productId: string; 
       productName: string; 
       productCode?: string;
-      /** Fix: Add missing jdeCode property used in RawMegaTable */
       jdeCode?: string;
-      /** Fix: Add missing itemStatus property used in RawMegaTable */
       itemStatus?: string;
       quantity: number;
       quantityBulk?: number;
@@ -176,6 +210,16 @@ export interface StockMovement {
   reason?: string;
   user: string;
   customFields?: Record<string, string>;
+}
+
+export interface Expense {
+  id: string;
+  date: string;
+  category: string;
+  amount: number;
+  payee: string;
+  description?: string;
+  user: string;
 }
 
 export interface SequenceConfig {
@@ -247,6 +291,8 @@ export interface Sale {
   isClosed?: boolean;
   isReturn?: boolean;
   notes?: string;
+  manualInvoiceNo?: string;
+  paperVoucher?: string;
 }
 
 export interface ButtonConfig {
@@ -293,7 +339,7 @@ export interface PurchaseRequest {
   priority: 'low' | 'medium' | 'high';
 }
 
-export type DataSourceType = 'sales' | 'purchases' | 'products' | 'movements' | 'purchaseRequests' | 'users';
+export type DataSourceType = 'sales' | 'purchases' | 'products' | 'movements' | 'purchaseRequests' | 'users' | 'expenses';
 
 export interface ReportColumn {
   id: string;
@@ -328,16 +374,32 @@ export interface MainScreenSettings {
   clockFormat: '12h' | '24h' | 'date-only';
   headerBackground: string;
   headerTextColor: string;
+  titleFontSizePx?: number;
+  titleFontWeight?: 'normal' | 'bold' | 'black';
+  titleFontStyle?: 'normal' | 'italic';
+  titleBackgroundColor?: string;
+  titlePadding?: number;
+  titleBorderRadius?: number;
   clockSize: 'sm' | 'md' | 'lg' | 'xl';
   titleFontSize: 'sm' | 'md' | 'lg' | 'xl';
   showTime: boolean;
   showDate: boolean;
+  showSeconds?: boolean;
   clockLayout: 'row' | 'column';
   clockVerticalAlign: 'top' | 'center' | 'bottom';
-  clockPosition: 'default' | 'under-title' | 'under-logo-right' | 'under-logo-left';
+  clockPosition: 'default' | 'under-title' | 'under-logo-right' | 'under-logo-left' | 'custom';
+  clockX?: number;
+  clockY?: number;
+  clockScale?: number;
   headerHeight: number;
   logoRightWidth: number;
+  logoRightHeight?: number;
+  logoRightX?: number;
+  logoRightY?: number;
   logoLeftWidth: number;
+  logoLeftHeight?: number;
+  logoLeftX?: number;
+  logoLeftY?: number;
   fontFamily?: 'cairo' | 'inter' | 'mono' | 'serif';
 }
 
@@ -390,16 +452,21 @@ export interface AppSettings {
   autoPrint: boolean;
   showClock: boolean;
   loginScreenLogo: string;
+  loginScreenTitle?: string;
+  globalAppTitle?: string;
+  globalFooterText?: string;
+  globalFooterVisible?: boolean;
+  developerBio?: string;
+  developerPhone?: string;
   printConfigs: Record<string, PrintConfig>;
   sequences: SequenceConfig;
   mainScreenSettings: MainScreenSettings;
   loadingEfficiencyConfig: any;
-  /** Fix: Added missing unloadingEfficiencyConfig property used in components and storage service */
   unloadingEfficiencyConfig: any;
   storekeepers: string[];
   storekeepersRaw: string[]; 
-  storekeepersParts: string[]; 
   storekeepersFinished: string[]; 
+  storekeepersParts: string[];
   clients: Client[];
   vendors: Vendor[];
   customFields: CustomField[];
@@ -426,4 +493,5 @@ export interface AppSettings {
   partsIssueTypes?: string[];
   partsSubWarehouses?: string[]; 
   partsOldPartsStatuses?: string[];
+  expenseCategories: string[];
 }

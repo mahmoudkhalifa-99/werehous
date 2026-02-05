@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
@@ -135,7 +136,10 @@ export const DailyStockMovementReport: React.FC<Props> = ({ title = 'تقرير 
         ...(isNumeric ? forceEnNumsStyle : {})
     });
 
-    const val = (n: number) => n !== 0 ? n.toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals }) : '-';
+    const val = (n: any) => {
+        if (n === null || n === undefined || isNaN(n) || Number(n) === 0) return "-";
+        return Number(n).toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    };
 
     return (
         <div className="space-y-4 animate-fade-in" dir="rtl">

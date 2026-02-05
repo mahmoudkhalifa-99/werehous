@@ -5,12 +5,13 @@ import { dbService } from '../services/storage';
 import { Product } from '../types';
 import { 
     Search, Plus, FileDown, FileUp, Printer, Settings, Eye, EyeOff, 
-    X, Save, Package, Hash, Tag, PlusCircle, Layout, Columns, Warehouse
+    X, Save, Package, Hash, Tag, PlusCircle, Layout, Columns, Warehouse, Trash2,
+    ZoomIn, ChevronDown
 } from 'lucide-react';
 import { printService } from '../services/printing';
 import { ReportActionsBar } from './ReportActionsBar';
 import { TableToolbar } from './TableToolbar';
-import { GlassCard, GlassInput } from './NeumorphicUI';
+import { GlassCard, GlassInput, ConfirmModal } from './NeumorphicUI';
 import { PrintSettingsModal } from './PrintSettingsModal';
 import * as XLSX from 'xlsx';
 
@@ -39,12 +40,15 @@ const COLUMN_WIDTHS: Record<number, number> = {
 };
 
 export const RawBalancesTable: React.FC = () => {
-    const { products, settings, refreshProducts, t, updateSettings } = useApp();
+    const { products, settings, refreshProducts, t, updateSettings, deleteProduct } = useApp();
     const [searchTerm, setSearchTerm] = useState('');
     const [hideZeroRows, setHideZeroRows] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isFormOpen, setIsFormOpen] = useState(true);
     const [updateTrigger, setUpdateTrigger] = useState(0); 
     const [showPrintModal, setShowPrintModal] = useState(false);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [pageScale, setPageScale] = useState(100); // New state for zoom
     const tableRef = useRef<HTMLTableElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -235,7 +239,6 @@ export const RawBalancesTable: React.FC = () => {
                     
                     const pId = existingIdx >= 0 ? allCurrentProducts[existingIdx].id : (barcode || `RAW-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`);
 
-                    // إعادة حساب الرصيد الحالي بناءً على الأرصدة الافتتاحية الجديدة والحركات التاريخية
                     const itemMoves = movements.filter(m => m.items.some(i => i.productId === pId));
                     let currentWhStock = openWh;
                     let currentSiloStock = openSilo;
@@ -384,10 +387,30 @@ export const RawBalancesTable: React.FC = () => {
         });
     };
 
+    const handleDeleteProduct = () => {
+        if (deleteId) {
+            deleteProduct(deleteId);
+            refreshProducts();
+            setUpdateTrigger(p => p + 1);
+            setDeleteId(null);
+            alert('تم حذف الصنف بنجاح');
+        }
+    };
+
     return (
         <div className="space-y-4 animate-fade-in font-cairo" dir="rtl">
             {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="raw_balances_full" />}
             
+            <ConfirmModal 
+                isOpen={!!deleteId} 
+                onClose={() => setDeleteId(null)} 
+                onConfirm={handleDeleteProduct} 
+                title="تأكيد حذف صنف" 
+                message="هل أنت متأكد من حذف هذا الصنف من مخزن الخامات؟ سيؤثر هذا على سجلات الجرد الحالية والمستقبلية." 
+                confirmText="نعم، حذف" 
+                cancelText="إلغاء" 
+            />
+
             <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => setTableStyles(DEFAULT_STYLES)} />
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 no-print select-none">
@@ -402,7 +425,26 @@ export const RawBalancesTable: React.FC = () => {
                         hideZeroRows={hideZeroRows}
                         setHideZeroRows={setHideZeroRows}
                     />
-                    <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls" onChange={handleImport} />
+                    <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleImport} />
+                    
+                    {/* Zoom Scale Button */}
+                    <div className="relative group">
+                        <button className="px-4 h-[42px] rounded-lg font-black border bg-white border-slate-300 text-slate-700 transition-all flex items-center gap-2 text-xs hover:bg-slate-50 shadow-sm">
+                            <ZoomIn size={18}/>
+                            <span>حجم العرض: {pageScale}%</span>
+                            <ChevronDown size={14}/>
+                        </button>
+                        <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-32 animate-fade-in">
+                            {[100, 90, 80, 70, 60, 50].map(s => (
+                                <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <button onClick={() => setIsFormOpen(!isFormOpen)} className={`px-4 h-[42px] rounded-xl font-black border transition-all flex items-center gap-2 text-xs ${isFormOpen ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-inner' : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'}`}>
+                        {isFormOpen ? <EyeOff size={18}/> : <Eye size={18}/>}
+                        {isFormOpen ? 'إخفاء أدوات التحكم' : 'إظهار أدوات التحكم'}
+                    </button>
                 </div>
                 <div className="relative w-full max-w-md">
                     <input className="w-full pr-12 pl-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm outline-none focus:ring-4 focus:ring-blue-100 font-black bg-slate-50 shadow-inner transition-all" placeholder="بحث شامل في الأسماء والأكواد..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -411,13 +453,17 @@ export const RawBalancesTable: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-[1.5rem] shadow-premium border-2 border-black overflow-hidden relative">
-                <div className="overflow-auto max-h-[70vh]">
+                <div 
+                    className="overflow-auto max-h-[70vh] transition-all duration-300 origin-top-right"
+                    style={{ zoom: pageScale / 100 }}
+                >
                     <table className="w-full border-collapse" ref={tableRef}>
                         <thead className="sticky top-0 z-20">
                             <tr className="bg-[#002060] text-yellow-300 h-16 font-black text-[11px] uppercase tracking-tighter shadow-md">
                                 {columns.map((col, i) => (
                                     <th key={i} className="p-2 border border-black" style={getCellStyle(false, i)}>{col}</th>
                                 ))}
+                                <th className="p-2 border border-black bg-red-900 text-white text-center sticky left-0 z-50 w-[50px] min-w-[50px]">سلة</th>
                             </tr>
                         </thead>
                         <tbody className="text-gray-900 font-bold">
@@ -459,6 +505,15 @@ export const RawBalancesTable: React.FC = () => {
                                     <td className="p-2 border border-black bg-[#002060] text-yellow-300 text-2xl font-black shadow-inner" style={getCellStyle(true, 28)}>{val(row.totalFactory)}</td>
                                     <td className="p-2 border border-black text-xs text-slate-500" style={getCellStyle(false, 29)}>{row.customFields?.warehouseName || 'مخزن الخامات'}</td>
                                     <td className="p-2 border border-black text-right text-[10px] italic text-slate-400" style={getCellStyle(false, 30)}>{row.notes || '-'}</td>
+                                    <td className="p-2 border border-black text-center sticky left-0 z-40 bg-white w-[50px] min-w-[50px]">
+                                        <button 
+                                            onClick={() => setDeleteId(row.id)}
+                                            className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-all"
+                                            title="حذف صنف"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

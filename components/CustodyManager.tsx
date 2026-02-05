@@ -4,13 +4,13 @@ import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
 import { GlassCard, GlassInput, GlassButton } from './NeumorphicUI';
 import { 
-    UserCheck, Hammer, History, Search, Printer, 
+    UserCheck, Hammer, History as HistoryIcon, Search, Printer, 
     Plus, PlusCircle, X, Save, ClipboardList, 
     ShieldCheck, Package, Tag, User, RotateCcw, FileText,
     UserCog, FileDown, Upload, Trash2,
     Calendar, Hash, Info, FileUp, Settings, Activity, Gauge,
     LayoutList, ArrowRightLeft, CheckCircle2, AlertCircle,
-    ArrowUpRight, ArrowDownLeft, Clock
+    ArrowUpRight, ArrowDownLeft, Clock, Share2
 } from 'lucide-react';
 import { StockMovement, Product } from '../types';
 import { printService } from '../services/printing';
@@ -29,7 +29,183 @@ const normalizeArabic = (text: string) => {
         .replace(/[أإآ]/g, 'ا')
         .replace(/ة/g, 'ه')
         .replace(/ى/g, 'ي')
-        .replace(/[\u064B-\u0652]/g, ''); 
+        .replace(/[\u064B-\u0652]/g, '') 
+        .replace(/\s+/g, ''); 
+};
+
+// --- FIX: Added missing TabBtn component ---
+const TabBtn: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode, label: string }> = ({ active, onClick, icon, label }) => (
+    <button onClick={onClick} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${active ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>
+        {icon} <span>{label}</span>
+    </button>
+);
+
+// --- FIX: Added missing Field component ---
+const Field: React.FC<{ label: string, icon: React.ReactNode, children: React.ReactNode }> = ({ label, icon, children }) => (
+    <div className="flex flex-col gap-1 w-full text-right">
+        <label className="text-[10px] font-black text-slate-500 mb-0.5 flex items-center gap-1 uppercase pr-1 tracking-tight">{icon} {label}</label>
+        {children}
+    </div>
+);
+
+// --- FIX: Added missing TechnicianReport component ---
+const TechnicianReport: React.FC<any> = ({ selectedTech, setSelectedTech, custodyItems, allTechs, allRecords, aggregatedData }) => {
+    const { settings } = useApp();
+    const handlePrint = () => {
+        if (!selectedTech) return;
+        const headers = ['الصنف', 'التصنيف', 'الكمية المتبقية', 'الوحدة', 'تاريخ الصرف'];
+        const data = custodyItems.map((item: any) => [
+            item.productName,
+            item.category,
+            item.netBalance,
+            item.unit,
+            item.firstIssueDate
+        ]);
+        printService.printGenericReport(`تقرير جرد عهدة الفني: ${selectedTech}`, headers, data, settings, 'technician_custody');
+    };
+
+    return (
+        <div className="space-y-6">
+            <GlassCard className="p-6">
+                <div className="flex flex-col md:flex-row gap-6 items-end">
+                    <div className="flex-1 w-full">
+                        <label className="block text-sm font-black text-slate-500 mb-2">اختر الفني للجرد</label>
+                        <select 
+                            className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-white font-black text-slate-800 outline-none focus:ring-4 focus:ring-indigo-100"
+                            value={selectedTech}
+                            onChange={e => setSelectedTech(e.target.value)}
+                        >
+                            <option value="">-- اختر الفني --</option>
+                            {allTechs.map((t: string) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <button 
+                        onClick={handlePrint}
+                        disabled={!selectedTech}
+                        className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                        <Printer size={20}/> طباعة تقرير الجرد
+                    </button>
+                </div>
+            </GlassCard>
+
+            {selectedTech && (
+                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl overflow-hidden">
+                    <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                        <h3 className="font-black text-xl">العهد المتواجدة حالياً مع: {selectedTech}</h3>
+                        <span className="bg-indigo-600 px-4 py-1 rounded-full text-xs font-black">{custodyItems.length} صنف</span>
+                    </div>
+                    <table className="w-full text-center border-collapse">
+                        <thead className="bg-slate-100 text-slate-600 font-black h-12">
+                            <tr>
+                                <th className="p-3 border-l">الصنف</th>
+                                <th className="p-3 border-l">الكمية</th>
+                                <th className="p-3 border-l">الوحدة</th>
+                                <th className="p-3 border-l">تاريخ الاستلام</th>
+                                <th className="p-3">الحالة عند الاستلام</th>
+                            </tr>
+                        </thead>
+                        <tbody className="font-bold text-slate-700">
+                            {custodyItems.map((item: any, idx: number) => (
+                                <tr key={idx} className="border-b h-14 hover:bg-slate-50">
+                                    <td className="p-3 border-l text-right pr-6 font-black">{item.productName}</td>
+                                    <td className="p-3 border-l text-indigo-600 text-lg" style={forceEnNumsStyle}>{item.netBalance}</td>
+                                    <td className="p-3 border-l text-slate-400">{item.unit}</td>
+                                    <td className="p-3 border-l" style={forceEnNumsStyle}>{item.firstIssueDate}</td>
+                                    <td className="p-3 text-xs italic text-slate-500">{item.firstIssueCondition}</td>
+                                </tr>
+                            ))}
+                            {custodyItems.length === 0 && (
+                                <tr><td colSpan={5} className="p-10 text-slate-400">لا توجد عهد متبقية لهذا الفني</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- FIX: Added missing CustodyImport component ---
+const CustodyImport: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { products, refreshProducts, user } = useApp();
+    const fileRef = useRef<HTMLInputElement>(null);
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = evt.target?.result;
+                const workbook = XLSX.read(data, { type: 'array' });
+                const ws = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(ws);
+                
+                if (jsonData.length === 0) return alert('الملف فارغ');
+
+                jsonData.forEach((row: any) => {
+                    const techName = String(row['الفني'] || row['الاسم'] || '').trim();
+                    const itemName = String(row['الصنف'] || row['اسم الصنف'] || '').trim();
+                    const qty = Number(row['الكمية'] || 1);
+                    const typeInput = String(row['النوع'] || row['نوع الحركة'] || 'صرف').toLowerCase();
+                    const type: 'in' | 'out' = typeInput.includes('صرف') || typeInput.includes('out') ? 'out' : 'in';
+                    const date = row['التاريخ'] ? new Date(row['التاريخ']).toISOString() : new Date().toISOString();
+
+                    if (!techName || !itemName) return;
+
+                    const product = products.find(p => normalizeArabic(p.name) === normalizeArabic(itemName));
+                    if (!product) return;
+
+                    const movement: StockMovement = {
+                        id: (Date.now() + Math.random()).toString(),
+                        date,
+                        type,
+                        warehouse: 'parts',
+                        refNumber: 'IMPORT-' + Date.now().toString().slice(-6),
+                        user: user?.name || 'Admin',
+                        reason: techName,
+                        items: [{
+                            productId: product.id,
+                            productName: product.name,
+                            productCode: product.barcode,
+                            quantity: qty,
+                            unit: product.unit || 'عدد',
+                            oldPartsStatus: row['الحالة'] || 'جديد',
+                            meterReading: String(row['النسبة'] || '100')
+                        }],
+                        customFields: {
+                            employeeCode: String(row['كود الفني'] || '-')
+                        }
+                    };
+                    dbService.saveMovement(movement);
+                });
+
+                refreshProducts();
+                alert('تم استيراد العهد بنجاح');
+                onBack();
+            } catch (err) {
+                alert('خطأ في معالجة الملف');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    return (
+        <GlassCard className="max-w-2xl mx-auto p-12 flex flex-col items-center gap-8 bg-white rounded-[3rem] shadow-xl text-center">
+            <div className="p-8 bg-indigo-50 text-indigo-600 rounded-full shadow-inner"><Upload size={64}/></div>
+            <div>
+                <h3 className="text-2xl font-black text-slate-800 mb-2">استيراد العهد المجمعة</h3>
+                <p className="text-slate-400 font-bold leading-relaxed">قم بتحميل ملف Excel يحتوي على أعمدة: (الفني، الصنف، الكمية، التاريخ، النوع)</p>
+            </div>
+            <div className="flex gap-4 w-full">
+                <button onClick={() => fileRef.current?.click()} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-indigo-700 transition-all">اختر ملف Excel</button>
+                <button onClick={onBack} className="px-10 bg-slate-100 text-slate-500 rounded-2xl font-black">إلغاء</button>
+            </div>
+            <input type="file" ref={fileRef} hidden accept=".xlsx,.xls" onChange={handleImport}/>
+        </GlassCard>
+    );
 };
 
 const CustodyDashboard: React.FC<{ stats: any, onNavigate: (v: any) => void }> = ({ stats, onNavigate }) => {
@@ -85,7 +261,7 @@ const StatCard: React.FC<{ title: string, value: number, icon: React.ReactNode, 
         </div>
         <h4 className="text-slate-400 text-xs font-black mb-1 uppercase tracking-wider">{title}</h4>
         <h2 className="text-4xl font-black text-slate-900 mb-2" style={forceEnNumsStyle}>{value}</h2>
-        <p className="text-[10px] text-slate-400 font-bold leading-tight">{sub}</p>
+        <p className="text-[10px] text-slate-400 font-bold alignment-right leading-tight">{sub}</p>
     </GlassCard>
 );
 
@@ -206,7 +382,7 @@ export const CustodyManager: React.FC = () => {
                 <TabBtn active={view === 'return'} onClick={() => setView('return')} icon={<RotateCcw size={18}/>} label="ارتجاع عهدة"/>
                 <TabBtn active={view === 'ledger'} onClick={() => setView('ledger')} icon={<LayoutList size={18}/>} label="تقارير عهد الفنيين"/>
                 <TabBtn active={view === 'technician_report'} onClick={() => setView('technician_report')} icon={<UserCheck size={18}/>} label="جرد عهدة فني"/>
-                <TabBtn active={view === 'history'} onClick={() => setView('history')} icon={<History size={18}/>} label="سجل الحركات"/>
+                <TabBtn active={view === 'history'} onClick={() => setView('history')} icon={<HistoryIcon size={18}/>} label="سجل الحركات"/>
                 <TabBtn active={view === 'import'} onClick={() => setView('import')} icon={<FileDown size={18}/>} label="استيراد شامل للعهد"/>
             </div>
 
@@ -592,7 +768,7 @@ const CustodyHistoryTable: React.FC<{ records: any[], searchTerm: string, setSea
         }));
         const ws = XLSX.utils.json_to_sheet(exportData);
         XLSX.utils.book_append_sheet(wb, ws, "CustodyHistory");
-        XLSX.writeFile(wb, `Custody_History_${new Date().toISOString().slice(0,10)}.xlsx`);
+        XLSX.writeFile(wb, `Custody_History_${new Date().toISOString().split('T')[0].slice(0,10)}.xlsx`);
     };
 
     const handlePrint = () => {
@@ -606,7 +782,7 @@ const CustodyHistoryTable: React.FC<{ records: any[], searchTerm: string, setSea
             {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="custody_history" />}
             <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm no-print gap-4">
                 <div className="flex items-center gap-4">
-                    <div className="p-3 bg-slate-800 text-white rounded-2xl shadow-lg"><History size={24}/></div>
+                    <div className="p-3 bg-slate-800 text-white rounded-2xl shadow-lg"><HistoryIcon size={24}/></div>
                     <div><h2 className="text-xl font-black text-slate-800">سجل حركات العهد</h2><p className="text-[10px] text-slate-400 font-bold uppercase">كافة عمليات الصرف والارتجاع للفنيين</p></div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -662,375 +838,6 @@ const CustodyHistoryTable: React.FC<{ records: any[], searchTerm: string, setSea
                     </table>
                 </div>
             </div>
-        </div>
-    );
-};
-
-const TechnicianReport: React.FC<{ 
-    selectedTech: string, 
-    setSelectedTech: any, 
-    custodyItems: any[], 
-    allTechs: string[],
-    allRecords: any[],
-    aggregatedData: any[]
-}> = ({ selectedTech, setSelectedTech, custodyItems, allTechs, allRecords, aggregatedData }) => {
-    const { settings } = useApp();
-    const [showPrintModal, setShowPrintModal] = useState(false);
-    const [activeTab, setActiveTab] = useState<'inventory' | 'lifecycle'>('inventory');
-
-    const currentTechCode = useMemo(() => {
-        if (!selectedTech) return '-';
-        const record = allRecords.find(r => r.employeeName === selectedTech);
-        return record?.employeeCode || '-';
-    }, [selectedTech, allRecords]);
-
-    const handleExport = () => {
-        if (!selectedTech) return;
-        const wb = XLSX.utils.book_new();
-        const exportData = custodyItems.map(i => ({ 
-            'اسم الفني': selectedTech,
-            'كود الفني': currentTechCode,
-            'نوع الصنف': i.category,
-            'بيان العهدة': i.productName, 
-            'الحالة': i.lastReturnCondition || i.firstIssueCondition,
-            'الكمية المتبقية': i.netBalance, 
-            'الوحدة': i.unit,
-            'تاريخ أول صرف': i.firstIssueDate,
-            'تاريخ آخر ارتجاع': i.lastReturnDate
-        }));
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        XLSX.utils.book_append_sheet(wb, ws, "TechCustody");
-        XLSX.writeFile(wb, `Custody_${selectedTech}_${new Date().toISOString().slice(0,10)}.xlsx`);
-    };
-
-    const handlePrint = () => {
-        if (!selectedTech) return;
-        const headers = ['م', 'نوع الصنف', 'بيان العهدة', 'الصافي الحالي', 'الوحدة', 'أول صرف', 'آخر ارتجاع'];
-        const data = custodyItems.map((item, idx) => [
-            idx + 1, 
-            item.category, 
-            item.productName, 
-            item.netBalance, 
-            item.unit,
-            item.firstIssueDate,
-            item.lastReturnDate
-        ]);
-        printService.printGenericReport(`تقرير جرد عهدة الفني: ${selectedTech} (${currentTechCode})`, headers, data, settings, 'technician_custody_report');
-    };
-
-    return (
-        <div className="space-y-4">
-            {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="technician_custody_report" />}
-            
-            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col lg:flex-row justify-between items-center gap-6 no-print">
-                <div className="flex items-center gap-4">
-                    <div className="p-4 bg-indigo-600 text-white rounded-3xl shadow-lg shadow-indigo-100"><UserCheck size={28}/></div>
-                    <div>
-                        <h2 className="text-xl font-black text-slate-800">جرد عهدة الفنيين</h2>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">عرض صافي العهد المتبقية وتتبع حركة القطع</p>
-                    </div>
-                </div>
-
-                <div className="flex-1 max-w-2xl flex flex-wrap items-center gap-3">
-                    <div className="flex-1 min-w-[250px]">
-                        <select 
-                            className="w-full p-4 rounded-2xl border-2 border-indigo-50 bg-slate-50 outline-none focus:bg-white focus:border-indigo-500 font-black text-indigo-900 transition-all shadow-inner" 
-                            value={selectedTech} 
-                            onChange={e => setSelectedTech(e.target.value)}
-                        >
-                            <option value="">-- اختر الفني لعرض عهدته --</option>
-                            {allTechs.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                    </div>
-
-                    {selectedTech && (
-                        <ReportActionsBar 
-                            onPrint={handlePrint}
-                            onExport={handleExport}
-                            onSettings={() => setShowPrintModal(true)}
-                            hideImport={true}
-                        />
-                    )}
-                </div>
-            </div>
-
-            {selectedTech && (
-                <div className="space-y-4 animate-fade-in">
-                    <div className="flex gap-2 p-1 bg-slate-200/50 rounded-2xl w-fit">
-                        <button onClick={() => setActiveTab('inventory')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'inventory' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>الجرد الحالي</button>
-                        <button onClick={() => setActiveTab('lifecycle')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'lifecycle' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>تتبع دورة حياة القطع</button>
-                    </div>
-
-                    {activeTab === 'inventory' ? (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-premium overflow-hidden">
-                            <div className="bg-slate-900 p-5 text-white flex justify-between items-center border-b-4 border-indigo-600">
-                                <div className="flex items-center gap-4">
-                                    <span className="font-black text-lg">قائمة العهد الحالية: {selectedTech}</span>
-                                    <span className="bg-white/20 px-4 py-1 rounded-xl text-xs font-bold border border-white/10">كود الفني: {currentTechCode}</span>
-                                </div>
-                                <span className="bg-indigo-600 px-6 py-1.5 rounded-full text-xs font-black shadow-lg" style={forceEnNumsStyle}>{custodyItems.length} صنف مسجل</span>
-                            </div>
-                            
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-center border-collapse">
-                                    <thead className="bg-slate-50 h-14">
-                                        <tr className="text-[11px] font-black text-slate-500 uppercase">
-                                            <th className="p-3 border-l w-16">م</th>
-                                            <th className="p-3 border-l text-right pr-6">نوع الصنف</th>
-                                            <th className="p-3 border-l text-right pr-6 min-w-[250px]">بيان الصنف (العهدة)</th>
-                                            <th className="p-3 border-l bg-blue-50/50">الصافي الحالي</th>
-                                            <th className="p-3 border-l">الوحدة</th>
-                                            <th className="p-3 border-l">تاريخ الصرف</th>
-                                            <th className="p-3">تاريخ الارتجاع</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-[14px] font-bold text-slate-700">
-                                        {custodyItems.map((item, idx) => (
-                                            <tr key={idx} className={`border-b hover:bg-indigo-50 transition-colors h-14 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
-                                                <td className="p-2 border-l text-slate-400" style={forceEnNumsStyle}>{idx + 1}</td>
-                                                <td className="p-2 border-l text-right pr-6">
-                                                    <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-[10px] font-black">{item.category}</span>
-                                                </td>
-                                                <td className="p-2 border-l text-right pr-6 font-black text-slate-900">{item.productName}</td>
-                                                <td className="p-2 border-l bg-blue-50/30 text-blue-800 text-lg font-black" style={forceEnNumsStyle}>{item.netBalance}</td>
-                                                <td className="p-2 border-l text-slate-500 font-bold">{item.unit || 'عدد'}</td>
-                                                <td className="p-2 border-l text-blue-600/70 text-xs" style={forceEnNumsStyle}>{item.firstIssueDate}</td>
-                                                <td className="p-2 text-emerald-600/70 text-xs" style={forceEnNumsStyle}>{item.lastReturnDate}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-premium overflow-hidden">
-                             <div className="bg-slate-800 p-4 text-white font-black text-center border-b-4 border-amber-500">تتبع السجل الزمني لحركات العهدة التفصيلي</div>
-                             <div className="overflow-x-auto">
-                                <table className="w-full text-center border-collapse text-sm">
-                                    <thead className="bg-slate-100 font-black text-slate-600 h-12 uppercase tracking-tighter">
-                                        <tr>
-                                            <th className="p-2 border-l">اسم الصنف</th>
-                                            <th className="p-2 border-l">النوع</th>
-                                            <th className="p-2 border-l">التاريخ</th>
-                                            <th className="p-2 border-l">الحالة عند الحركة</th>
-                                            <th className="p-2 border-l">النسبة %</th>
-                                            <th className="p-2">الكمية</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="font-bold text-slate-700">
-                                        {custodyItems.flatMap((item: any) => item.history.map((h: any, hIdx: number) => (
-                                            <tr key={`${item.productId}-${hIdx}`} className="border-b hover:bg-slate-50 transition-colors">
-                                                <td className="p-3 text-right pr-6 border-l font-black text-slate-900">{hIdx === 0 ? item.productName : ''}</td>
-                                                <td className="p-3 border-l">
-                                                    <span className={`px-4 py-1 rounded-full text-[10px] ${h.type === 'صرف' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                        {h.type === 'صرف' ? <ArrowUpRight size={12} className="inline ml-1"/> : <ArrowDownLeft size={12} className="inline ml-1"/>}
-                                                        {h.type}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 border-l text-slate-500" style={forceEnNumsStyle}>{h.date}</td>
-                                                <td className="p-3 border-l">
-                                                    <span className={`px-2 py-0.5 rounded text-xs ${h.condition === 'جديد' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{h.condition}</span>
-                                                </td>
-                                                <td className="p-3 border-l text-indigo-600" style={forceEnNumsStyle}>{h.percent}%</td>
-                                                <td className="p-3 font-black text-lg" style={forceEnNumsStyle}>{h.qty}</td>
-                                            </tr>
-                                        )))}
-                                    </tbody>
-                                </table>
-                             </div>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const TabBtn: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode, label: string }> = ({ active, onClick, icon, label }) => (
-    <button onClick={onClick} className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl font-black text-xs transition-all border-b-4 whitespace-nowrap ${active ? 'bg-indigo-600 text-white border-indigo-800 shadow-lg scale-105' : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50'}`}>{icon} <span>{label}</span></button>
-);
-
-const Field: React.FC<{ label: string, icon: React.ReactNode, children: React.ReactNode }> = ({ label, icon, children }) => (
-    <div className="flex flex-col gap-1"><label className="text-[10px] font-black text-slate-400 flex items-center gap-1 uppercase">{icon} {label}</label>{children}</div>
-);
-
-const CustodyImport: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { products, refreshProducts, user, settings } = useApp();
-    const [fileData, setFileData] = useState<any[]>([]);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            try {
-                const workbook = XLSX.read(evt.target?.result, { type: 'array' });
-                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-                const processed = json.map((row: any, idx: number) => {
-                    const barcode = String(row['كود الصنف'] || row.Barcode || row['الكود'] || '').trim();
-                    const name = String(row['اسم الصنف'] || row.Name || row['الاسم'] || '').trim();
-                    const qty = Number(row['الكمية'] || row.Quantity || 1);
-                    const prod = products.find(p => p.barcode === barcode || p.name === name);
-                    
-                    const techName = row['اسم الفني'] || row.Technician || 'غير محدد';
-                    const techCode = row['كود الفني'] || row['كود الموظف'] || '-';
-                    const moveType = (row['نوع الحركة'] || '').includes('ارتجاع') ? 'in' : 'out';
-                    const moveDate = row['التاريخ'] ? new Date(row['التاريخ']).toISOString() : new Date().toISOString();
-                    const refNum = row['رقم المستند'] || row.Ref || `IMP-${Date.now()}-${idx}`;
-
-                    return { 
-                        productId: prod?.id, 
-                        productName: prod?.name || name, 
-                        barcode: prod?.barcode || barcode, 
-                        category: prod?.category || '-', 
-                        quantity: qty, 
-                        isValid: !!prod,
-                        condition: row['الحالة'] || 'جديد',
-                        percent: row['النسبة'] || '100',
-                        unit: row['الوحدة'] || prod?.unit || 'عدد',
-                        techName,
-                        techCode,
-                        moveType,
-                        moveDate,
-                        refNum
-                    };
-                });
-                setFileData(processed);
-            } catch (err) {
-                alert('خطأ في قراءة ملف Excel، يرجى التأكد من التنسيق');
-            }
-        };
-        reader.readAsArrayBuffer(file);
-    };
-
-    const handleFinalImport = async () => {
-        if (fileData.length === 0) return alert('يرجى رفع ملف أولاً');
-        setIsProcessing(true);
-
-        try {
-            const movementsGroups: Record<string, any> = {};
-
-            fileData.filter(i => i.isValid).forEach(row => {
-                const groupKey = `${row.techName}_${row.moveDate}_${row.refNum}_${row.moveType}`;
-                if (!movementsGroups[groupKey]) {
-                    movementsGroups[groupKey] = {
-                        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                        date: row.moveDate,
-                        type: row.moveType,
-                        warehouse: 'parts',
-                        refNumber: row.refNum,
-                        user: user?.name || 'نظام الاستيراد',
-                        reason: row.techName,
-                        customFields: { employeeCode: row.techCode },
-                        items: []
-                    };
-                }
-                movementsGroups[groupKey].items.push({
-                    productId: row.productId,
-                    productName: row.productName,
-                    quantity: row.quantity,
-                    oldPartsStatus: row.condition,
-                    meterReading: row.percent,
-                    unit: row.unit,
-                    notes: `استيراد شامل`
-                });
-            });
-
-            Object.values(movementsGroups).forEach((movement: any) => {
-                dbService.saveMovement(movement);
-            });
-
-            refreshProducts();
-            alert(`تم استيراد ${Object.keys(movementsGroups).length} مستند عهدة بنجاح بنجاح`);
-            onBack();
-        } catch (err) {
-            alert('حدث خطأ أثناء حفظ البيانات');
-        } finally {
-            setIsProcessing(false);
-        }
-    };
-
-    return (
-        <GlassCard className="max-w-6xl mx-auto bg-white p-8 border-t-8 border-indigo-600 shadow-2xl rounded-[2.5rem]">
-            <div className="flex justify-between items-center mb-8 border-b pb-4">
-                <div>
-                    <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3"><FileDown className="text-indigo-600" /> استيراد شامل للعهد من Excel</h3>
-                    <p className="text-slate-400 font-bold text-xs mt-1">يمكنك رفع ملف يحتوي على فنيين متعددين وعمليات صرف وارتجاع معاً</p>
-                </div>
-                <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><X/></button>
-            </div>
-
-            {!fileData.length ? (
-                <div className="flex flex-col items-center justify-center p-20 border-4 border-dashed border-slate-100 rounded-[3rem] bg-slate-50/50 hover:bg-indigo-50/30 hover:border-indigo-200 transition-all cursor-pointer group" onClick={() => fileRef.current?.click()}>
-                    <div className="p-8 bg-white rounded-full shadow-xl mb-6 group-hover:scale-110 transition-transform">
-                        <Upload size={64} className="text-indigo-600"/>
-                    </div>
-                    <h4 className="text-xl font-black text-slate-700">اختر ملف Excel للبدء</h4>
-                    <p className="text-slate-400 font-bold text-sm mt-2 text-center">يجب أن يحتوي الملف على أعمدة: (اسم الفني، كود الفني، نوع الحركة، الكود، الكمية)</p>
-                    <input type="file" ref={fileRef} hidden accept=".xlsx,.xls" onChange={handleFileUpload} />
-                </div>
-            ) : (
-                <div className="space-y-6 animate-fade-in">
-                    <div className="flex justify-between items-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                        <div className="flex items-center gap-4">
-                            <CheckCircle2 className="text-emerald-600" size={24}/>
-                            <span className="font-black text-indigo-900">تم تحليل {fileData.length} سطر من البيانات</span>
-                        </div>
-                        <button onClick={() => setFileData([])} className="text-rose-600 font-black text-xs hover:underline flex items-center gap-1"><X size={14}/> إلغاء واختيار ملف آخر</button>
-                    </div>
-
-                    <div className="overflow-hidden rounded-3xl border border-slate-200 shadow-sm max-h-[400px] overflow-y-auto">
-                        <table className="w-full text-center border-collapse text-xs font-bold">
-                            <thead className="bg-slate-900 text-white sticky top-0 z-10">
-                                <tr className="h-10">
-                                    <th className="p-2">الفني</th>
-                                    <th className="p-2">التاريخ</th>
-                                    <th className="p-2">النوع</th>
-                                    <th className="p-2">الصنف</th>
-                                    <th className="p-2">الكمية</th>
-                                    <th className="p-2">الحالة</th>
-                                    <th className="p-2">تأكيد الصنف</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {fileData.map((row, idx) => (
-                                    <tr key={idx} className={`border-b h-10 ${row.isValid ? 'bg-white' : 'bg-red-50'}`}>
-                                        <td className="p-2">{row.techName} <span className="text-[10px] text-slate-400">({row.techCode})</span></td>
-                                        <td className="p-2" style={forceEnNumsStyle}>{new Date(row.moveDate).toLocaleDateString('en-GB')}</td>
-                                        <td className="p-2">
-                                            <span className={`px-2 py-0.5 rounded ${row.moveType === 'in' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                                                {row.moveType === 'in' ? 'ارتجاع' : 'صرف'}
-                                            </span>
-                                        </td>
-                                        <td className="p-2 text-right">{row.productName}</td>
-                                        <td className="p-2" style={forceEnNumsStyle}>{row.quantity}</td>
-                                        <td className="p-2">{row.condition}</td>
-                                        <td className="p-2">
-                                            {row.isValid ? 
-                                                <CheckCircle2 size={16} className="text-emerald-500 mx-auto"/> : 
-                                                <div className="flex items-center gap-1 text-rose-500 justify-center"><AlertCircle size={16}/> <span className="text-[9px]">غير مسجل</span></div>
-                                            }
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div className="flex gap-4">
-                        <button 
-                            disabled={isProcessing || !fileData.some(i => i.isValid)}
-                            onClick={handleFinalImport} 
-                            className="flex-1 bg-indigo-600 text-white py-5 rounded-3xl font-black text-xl shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                        >
-                            {isProcessing ? <Activity className="animate-spin"/> : <Save/>}
-                            تأكيد ترحيل البيانات الصالحة إلى السجلات
-                        </button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

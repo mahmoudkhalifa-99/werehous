@@ -1,513 +1,413 @@
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
 import { 
-    Search, Edit2, Check, X, Settings, Trash2, RotateCcw, Rows, Columns, Eye, EyeOff, FileUp, FileDown, Printer, Plus, Save, Filter
+    Search, X, Trash2, Eye, EyeOff, Link as LinkIcon, Calculator, 
+    FunctionSquare, Calendar, GitMerge, RotateCcw, Check, ZoomIn, ChevronDown,
+    FileUp, FileDown, Printer, Settings, Palette, Info
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { printService } from '../services/printing';
-import { StockMovement, Product, Sale } from '../types';
-import { ConfirmModal, GlassInput, GlassCard } from './NeumorphicUI';
+import { ConfirmModal, GlassButton } from './NeumorphicUI';
 import { PrintSettingsModal } from './PrintSettingsModal';
 import { ReportActionsBar } from './ReportActionsBar';
-import { TableToolbar } from './TableToolbar';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { Product } from '../types';
 
 const forceEnNumsStyle = {
     fontVariantNumeric: 'lining-nums',
     direction: 'ltr' as const,
-    fontSize: '14px',
-    fontWeight: '700',
+    fontSize: '11px',
+    fontWeight: '800',
     textAlign: 'center' as const 
 };
 
-const DEFAULT_STYLES = {
-    fontFamily: 'Calibri, sans-serif',
-    fontSize: 12,
-    isBold: true,
-    isItalic: false,
-    isUnderline: false,
-    textAlign: 'center' as 'right' | 'center' | 'left',
-    verticalAlign: 'middle' as 'top' | 'middle' | 'bottom',
-    decimals: 2,
-    rowHeight: 44,
-    columnWidth: 95
+// Available variables for equations
+const FORMULA_VARIABLES = [
+    { key: 'G', label: 'أول صب', color: 'bg-yellow-50 text-yellow-700' },
+    { key: 'H', label: 'أول معبأ', color: 'bg-yellow-100 text-yellow-800' },
+    { key: 'I', label: 'الانتاج', color: 'bg-blue-50 text-blue-700' },
+    { key: 'J', label: 'الاستلامات', color: 'bg-emerald-50 text-emerald-700' },
+    { key: 'K', label: 'تسوية+ م', color: 'bg-green-50 text-green-700' },
+    { key: 'L', label: 'تسوية+ ص', color: 'bg-green-100 text-green-800' },
+    { key: 'M', label: 'مرتجع م', color: 'bg-rose-50 text-rose-700' },
+    { key: 'N', label: 'مرتجع ص', color: 'bg-rose-100 text-rose-800' },
+    { key: 'O', label: 'تحويل م', color: 'bg-orange-50 text-orange-700' },
+    { key: 'P', label: 'تحويل ص', color: 'bg-orange-100 text-orange-800' },
+    { key: 'Q', label: 'مزارع م', color: 'bg-blue-50 text-blue-700' },
+    { key: 'R', label: 'مزارع ص', color: 'bg-blue-100 text-blue-800' },
+    { key: 'S', label: 'عملاء م', color: 'bg-indigo-50 text-indigo-700' },
+    { key: 'T', label: 'عملاء ص', color: 'bg-indigo-100 text-indigo-800' },
+    { key: 'U', label: 'منافذ', color: 'bg-purple-50 text-purple-700' },
+    { key: 'V', label: 'غير م', color: 'bg-slate-100 text-slate-700' },
+    { key: 'W', label: 'غير ص', color: 'bg-slate-200 text-slate-800' },
+    { key: 'X', label: 'عجز م', color: 'bg-red-50 text-red-700' },
+    { key: 'Y', label: 'عجز ص', color: 'bg-red-100 text-red-800' }
+];
+
+const evaluateExcelFormula = (formula: string, rowContext: Record<string, number>): number => {
+    try {
+        if (!formula || formula.trim() === '') return 0;
+        let f = formula.trim().toUpperCase();
+        if (f.startsWith('=')) f = f.substring(1);
+        const sortedKeys = Object.keys(rowContext).sort((a, b) => b.length - a.length);
+        for (const key of sortedKeys) {
+            // Escaped word boundary and dynamic key
+            const regex = new RegExp('\\b' + key + '\\b', 'g');
+            f = f.replace(regex, (rowContext[key] || 0).toString());
+        }
+        // Secure sanitization allowing only basic math
+        let sanitized = f.replace(/[^0-9.+\-\*\/() ]/g, '');
+        if (!sanitized.trim()) return 0;
+        const result = new Function('return (' + sanitized + ')')();
+        return isNaN(result) ? 0 : result;
+    } catch (e) { return 0; }
 };
 
-const INITIAL_COLUMN_WIDTHS: Record<number, number> = {
-    0: 90, 1: 90, 2: 90, 3: 350, 4: 70, 5: 100, 6: 100, 24: 120, 25: 120,
-};
-
-interface Props {
-    filterCategory?: string;
-}
-
-export const DetailedFinishedTable: React.FC<Props> = ({ filterCategory: initialFilter }) => {
-  const { products, settings, refreshProducts, user, t, deleteProduct } = useApp();
+export const DetailedFinishedTable: React.FC<{ filterCategory?: string }> = ({ filterCategory: initialFilter }) => {
+  const { products, refreshProducts, user, t, deleteProduct, addNotification } = useApp();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [hideZeroRows, setHideZeroRows] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>(initialFilter || 'أعلاف');
-  
-  const PRINT_CONTEXT = activeCategory === 'بيوتولوجى' ? 'finished_petrology_balances' : 'finished_balances_screen';
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [pageScale, setPageScale] = useState(100);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [linkingModalItem, setLinkingModalItem] = useState<any | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [tableStyles, setTableStyles] = useState(() => {
-      const saved = localStorage.getItem(`glasspos_finished_${activeCategory}_styles`);
-      return saved ? { ...DEFAULT_STYLES, ...JSON.parse(saved) } : DEFAULT_STYLES;
-  });
-
-  const [columnWidths, setColumnWidths] = useState<Record<number, number>>(() => {
-      const saved = localStorage.getItem(`glasspos_finished_${activeCategory}_widths`);
-      return saved ? JSON.parse(saved) : INITIAL_COLUMN_WIDTHS;
-  });
-
-  useEffect(() => {
-      localStorage.setItem(`glasspos_finished_${activeCategory}_styles`, JSON.stringify(tableStyles));
-  }, [tableStyles, activeCategory]);
-
-  useEffect(() => {
-      localStorage.setItem(`glasspos_finished_${activeCategory}_widths`, JSON.stringify(columnWidths));
-  }, [columnWidths, activeCategory]);
-
-  const [frozenCols] = useState(5);
-  const [frozenRows] = useState(1);
-  const tableRef = useRef<HTMLTableElement>(null);
-  const [editingCell, setEditingCell] = useState<{ productId: string, type: 'bulk' | 'packed' | 'emptySacks' | 'sackWeight', currentVal: number } | null>(null);
-  const [editValue, setEditValue] = useState<string>('');
-  const [showPrintModal, setShowPrintModal] = useState(false);
-
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newProductForm, setNewProductForm] = useState<Partial<Product>>({
-      name: '',
-      barcode: '',
-      jdeCodePacked: '',
-      jdeCodeBulk: '',
-      category: activeCategory,
-      unit: 'طن',
-      initialStockBulk: 0,
-      initialStockPacked: 0,
-      sackWeight: 50,
-      warehouse: 'finished'
+  const [dateFilter, setDateFilter] = useState({
+    start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
   });
 
   const isAdmin = user?.role === 'admin';
-  const isViewOnly = !isAdmin && user?.permissions?.screens?.['finished'] === 'view';
+  const isViewOnly = !isAdmin && user?.permissions?.screens?.sb_finished === 'view';
+  const PRINT_CONTEXT = activeCategory === 'بيوتولوجى' ? 'finished_petrology_balances' : 'finished_feed_balances';
 
-  const formatEng = (val: number) => {
-    if (!val && val !== 0) return ""; 
-    if (Math.abs(val) < 0.00001 && val !== 0) return "";
-    return val.toLocaleString('en-US', { 
-        minimumFractionDigits: tableStyles.decimals, 
-        maximumFractionDigits: tableStyles.decimals 
-    });
+  const [linkages, setLinkages] = useState<Record<string, any>>(() => {
+      const saved = localStorage.getItem('glasspos_mizan_logic_v16_' + activeCategory);
+      return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+      const saved = localStorage.getItem('glasspos_mizan_logic_v16_' + activeCategory);
+      setLinkages(saved ? JSON.parse(saved) : {});
+  }, [activeCategory, products]);
+
+  const handleUpdateColor = (productId: string, color: string) => {
+    const prod = products.find(p => p.id === productId);
+    if (!prod) return;
+    const updated = { ...prod, customFields: { ...(prod.customFields || {}), rowColor: color } };
+    dbService.saveProduct(updated);
+    refreshProducts();
   };
 
-  const normalizeForMatch = (text: any) => {
-    if (!text) return '';
-    return String(text).trim().toLowerCase()
-        .replace(/[أإآ]/g, 'ا')
-        .replace(/ة/g, 'ه')
-        .replace(/[\u064B-\u0652]/g, '')
-        .replace(/\s+/g, '');
+  const handleSackWeightUpdate = (productId: string, value: string) => {
+      const prod = products.find(p => p.id === productId);
+      if (!prod) return;
+      const weight = parseFloat(value);
+      if (isNaN(weight)) return;
+      const updatedProduct = { ...prod, sackWeight: weight };
+      dbService.saveProduct(updatedProduct);
+      refreshProducts();
+  };
+
+  const handleExportExcel = () => {
+    const headers = [
+        "كود دريف", "JDE معبأ", "JDE صب", "اسم الصنف", "الوحدة", 
+        "أول صب", "أول معبأ", "إنتاج", "استلامات", "تسوية (+)", "مرتجع", 
+        "تحويلات", "مزارع", "عملاء", "منافذ", "عجز", "الرصيد النهائي", "رصيد المعبأ"
+    ];
+    const data = reportData.map(r => [
+        r.product.barcode, r.product.jdeCodePacked || '-', r.product.jdeCodeBulk || '-', r.product.name, r.product.unit || 'طن',
+        r.G, r.H, r.I, r.J, r.K + r.L, r.M + r.N, r.O + r.P, r.Q + r.R, r.S + r.T, r.U, r.X + r.Y, r.Z, r.AA
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Finished_Balances");
+    XLSX.writeFile(wb, "Finished_Balances_" + activeCategory + ".xlsx");
+  };
+
+  const getParsedQty = (item: any, product: any) => {
+    let b = Number(item.quantityBulk || 0);
+    let pck = Number(item.quantityPacked || 0);
+    if (b === 0 && pck === 0) {
+        const unit = (item.unit || product.unit || '').toLowerCase();
+        if (unit.includes('صب') || unit.includes('bulk') || unit.includes('ton')) b = Number(item.quantity || 0);
+        else pck = Number(item.quantity || 0);
+    }
+    return { b, pck };
   };
 
   const reportData = useMemo(() => {
-    // تصفية صارمة: فقط المنتجات التي تتبع مخزن المنتج التام وتطابق التصنيف
+    const startRange = new Date(dateFilter.start); startRange.setHours(0,0,0,0);
+    const endRange = new Date(dateFilter.end); endRange.setHours(23,59,59,999);
+
     const finishedProducts = products.filter(p => {
         const itemCat = (p.category || '').trim();
         const isFinished = p.warehouse === 'finished';
-        const isNotRaw = !itemCat.includes('خامات');
-        
-        if (activeCategory === 'بيوتولوجى') {
-            return isFinished && itemCat === 'بيوتولوجى';
-        }
-        return isFinished && isNotRaw && (itemCat === 'أعلاف' || itemCat !== 'بيوتولوجى');
+        if (activeCategory === 'بيوتولوجى') return isFinished && itemCat === 'بيوتولوجى';
+        return isFinished && (itemCat === 'أعلاف' || itemCat !== 'بيوتولوجى');
     });
 
     const movements = dbService.getMovements();
     const sales = dbService.getSales();
 
-    const movementMap: Record<string, StockMovement[]> = {};
-    movements.forEach(m => {
-        m.items.forEach(item => {
-            if (!movementMap[item.productId]) movementMap[item.productId] = [];
-            movementMap[item.productId].push(m);
-        });
-    });
-
-    const salesMap: Record<string, Sale[]> = {};
-    sales.forEach(s => {
-        s.items.forEach(item => {
-            if (!salesMap[item.id]) salesMap[item.id] = [];
-            salesMap[item.id].push(s);
-        });
-    });
-
-    let data = finishedProducts.map(product => {
-        const row = { 
+    let initialData = finishedProducts.map((product) => {
+        const row: any = { 
             product, 
-            openingBulk: product.initialStockBulk || 0, 
-            openingPacked: product.initialStockPacked || 0, 
-            prodBulk: 0, receivedPacked: 0, adjInPacked: 0, adjInBulk: 0, 
-            returnClientPacked: 0, returnClientBulk: 0, transferPacked: 0, 
-            transferBulk: 0, salesFarmPacked: 0, salesFarmBulk: 0, 
-            salesClientPacked: 0, salesClientBulk: 0, outletTransfers: 0, 
-            unfinishedPacked: 0, unfinishedBulk: 0, adjOutPacked: 0, 
-            adjOutBulk: 0, totalBalance: 0, packedBalance: 0, 
-            openingCount: 0, emptySacks: 0, siloRemains: 0, diff: 0, sackWeight: 0 
-        };
-        
-        const isBulkItem = (product.unit?.toLowerCase() === 'ton' || product.unit?.toLowerCase() === 'طن' || product.unit?.includes('صب'));
-        row.sackWeight = product.sackWeight || (isBulkItem ? 0 : (product.name.includes('25') ? 25 : 50));
-        let manualEmptySacksAdj = 0;
-        
-        const categorizeTransaction = (qty: number, isBulk: boolean, type: string, notes: string = '', salesType: string = '') => {
-            const absQty = Math.abs(qty); const n = notes.toLowerCase(); const sType = (salesType || '').toLowerCase();
-            if (n.includes('جرد')) { row.openingCount += qty; return; }
-            if (n.includes('غير تام')) { if (isBulk) row.unfinishedBulk += absQty; else row.unfinishedPacked += absQty; return; }
-            if (n.includes('تعديل شكاير')) { manualEmptySacksAdj += (type === 'out' || qty < 0) ? -absQty : absQty; return; }
-            if ((type === 'sale' && qty < 0) || (type === 'in' && n.includes('مرتجع'))) { if (isBulk) row.returnClientBulk += absQty; else row.returnClientPacked += absQty; return; }
-            if (type === 'in') {
-                if (n.includes('تسوية') || (n.includes('إضافة') && !n.includes('انتاج'))) { if (isBulk) row.adjInBulk += absQty; else row.adjInPacked += absQty; } 
-                else { if (isBulk) row.prodBulk += absQty; else row.receivedPacked += absQty; }
-                return;
-            }
-            if (type === 'sale' && qty > 0) {
-                if (sType.includes('مزارع')) { if (isBulk) row.salesFarmBulk += absQty; else row.salesFarmPacked += absQty; } 
-                else if (sType.includes('منافذ')) { row.outletTransfers += absQty; } 
-                else { if (isBulk) row.salesClientBulk += absQty; else row.salesClientPacked += absQty; }
-                return;
-            }
-            if (type === 'out' || (type === 'adjustment' && qty < 0)) {
-                if (n.includes('تسوية') || n.includes('عجز')) { if (isBulk) row.adjOutBulk += absQty; else row.adjOutPacked += absQty; } 
-                else { if (isBulk) row.transferBulk += absQty; else row.transferPacked += absQty; }
-                return;
-            }
+            G: Number(product.initialStockBulk || 0),
+            H: Number(product.initialStockPacked || 0),
+            I: 0, J: 0, K: 0, L: 0, M: 0, N: 0, O: 0, P: 0, Q: 0, R: 0, S: 0, T: 0, U: 0, V: 0, W: 0, X: 0, Y: 0, 
+            AB: 0, 
+            AC: Number(product.sackWeight || (product.name.includes('25') ? 25 : 50)),
+            AD: 0, AE: 0,
+            rawProductionFromMovements: 0 
         };
 
-        movementMap[product.id]?.forEach(m => {
+        movements.filter(m => m.warehouse === 'finished').forEach(m => {
             const item = m.items.find(i => i.productId === product.id);
-            if (item) {
-                const qB = Number(item.quantityBulk || 0), qP = Number(item.quantityPacked || 0), n = (m.reason || '') + (item.notes || '');
-                if (qB !== 0) categorizeTransaction(m.type === 'out' ? -Math.abs(qB) : Math.abs(qB), true, m.type, n);
-                if (qP !== 0) categorizeTransaction(m.type === 'out' ? -Math.abs(qP) : Math.abs(qP), false, m.type, n);
-                if (qB === 0 && qP === 0) categorizeTransaction(m.type === 'out' ? -Number(item.quantity) : Number(item.quantity), isBulkItem, m.type, n);
+            if (!item) return;
+            const mDate = new Date(m.date);
+            const { b: qB, pck: qP } = getParsedQty(item, product);
+            const notes = ((m.reason || '') + (item.notes || '')).toLowerCase();
+            const entryMode = (m.customFields?.entryMode || '').toLowerCase();
+            
+            if (mDate < startRange) {
+                const factor = (m.type === 'in' || m.type === 'return' || (m.type === 'adjustment' && !m.reason?.includes('خصم'))) ? 1 : -1;
+                row.G += (qB * factor);
+                row.H += (qP * factor);
+            } 
+            else if (mDate <= endRange) {
+                if (notes.includes('جرد')) { row.AB += (Number(item.quantity) * (m.type === 'out' ? -1 : 1)); }
+                else if (entryMode === 'unfinished') { row.W += qB; row.V += qP; }
+                else if (m.type === 'return' || notes.includes('مرتجع')) { row.N += qB; row.M += qP; }
+                else if (m.type === 'adjustment') { 
+                    if (m.reason?.includes('عجز') || m.reason?.includes('خصم')) { row.Y += qB; row.X += qP; } 
+                    else { row.L += qB; row.K += qP; } 
+                }
+                else if (m.type === 'in') { row.J += qP; row.rawProductionFromMovements += qB; }
+                else if (m.type === 'transfer' || m.type === 'out') { row.P += qB; row.O += qP; }
             }
         });
 
-        salesMap[product.id]?.forEach(s => {
+        sales.forEach(s => {
             const item = s.items.find(i => i.id === product.id);
-            if (item) {
-                const qB = Number(item.quantityBulk || 0), qP = Number(item.quantityPacked || 0);
-                if (qB !== 0) categorizeTransaction(item.quantity < 0 ? -Math.abs(qB) : Math.abs(qB), true, 'sale', '', item.salesType);
-                if (qP !== 0) categorizeTransaction(item.quantity < 0 ? -Math.abs(qP) : Math.abs(qP), false, 'sale', '', item.salesType);
-                if (qB === 0 && qP === 0) categorizeTransaction(item.quantity, isBulkItem, 'sale', '', item.salesType);
+            if (!item) return;
+            const sDate = new Date(s.date);
+            const { b: qB, pck: qP } = getParsedQty(item, product);
+            const sType = (item.salesType || '').toLowerCase();
+
+            if (sDate < startRange) { row.G -= qB; row.H -= qP; }
+            else if (sDate <= endRange) {
+                if (item.quantity < 0) { row.N += Math.abs(qB); row.M += Math.abs(qP); } 
+                else {
+                    if (sType.includes('مزارع')) { row.R += qB; row.Q += qP; } 
+                    else if (sType.includes('منافذ')) { row.U += (qB + qP); } 
+                    else { row.T += qB; row.S += qP; }
+                }
             }
         });
-
-        if (row.sackWeight > 0) row.emptySacks = (row.receivedPacked * row.sackWeight) + manualEmptySacksAdj;
-        else row.emptySacks = manualEmptySacksAdj;
-        
-        row.totalBalance = (row.openingBulk + row.openingPacked) + (row.prodBulk + row.receivedPacked + row.adjInPacked + row.adjInBulk + row.returnClientPacked + row.returnClientBulk) - (row.transferPacked + row.transferBulk + row.salesFarmPacked + row.salesFarmBulk + row.salesClientPacked + row.salesClientBulk + row.outletTransfers + row.unfinishedPacked + row.unfinishedBulk + row.adjOutPacked + row.adjOutBulk);
-        row.packedBalance = row.openingPacked + row.receivedPacked + row.adjInPacked + row.returnClientPacked - (row.transferPacked + row.salesFarmPacked + row.salesClientPacked + row.outletTransfers + row.unfinishedPacked + row.adjOutPacked);
-        row.siloRemains = row.totalBalance - row.openingCount;
-        row.diff = row.packedBalance - row.openingCount;
         return row;
     });
 
-    if (hideZeroRows) data = data.filter(row => Math.abs(row.totalBalance) > 0.001 || Math.abs(row.openingBulk) > 0.001 || Math.abs(row.openingPacked) > 0.001);
-    
-    return data.filter(row => row.product.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  }, [products, searchTerm, hideZeroRows, activeCategory]);
+    return initialData.map(row => {
+        const link = linkages[row.product.id];
+        const prodFormula = link?.prodFormula || "";
+        const packedFormula = link?.packedFormula || "";
+        const totalFormula = link?.totalFormula || "";
+        const parentId = link?.parentId;
+        const excelCtx: any = { ...row };
 
-  const handleExport = () => {
-    try {
-        const headers = ["كود الصنف JDE معبأ", "كود الصنف JDE صب", "كود ثانوي", "الصنف", "الوحدة", "رصيد أول صب", "رصيد أول معبأ", "إجمالي الرصيد"];
-        const rows = reportData.map(r => [
-            r.product.jdeCodePacked || '', 
-            r.product.jdeCodeBulk || '', 
-            r.product.barcode, 
-            r.product.name, 
-            r.product.unit, 
-            r.openingBulk, 
-            r.openingPacked, 
-            r.totalBalance
-        ]);
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        XLSX.utils.book_append_sheet(wb, ws, "Balances");
-        XLSX.writeFile(wb, `Finished_${activeCategory}_Balances_${new Date().toISOString().split('T')[0]}.xlsx`);
-    } catch (err) { alert('خطأ في تصدير البيانات'); }
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-        try {
-            const data = evt.target?.result;
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(sheet);
-            
-            if (!jsonData.length) return alert('الملف فارغ أو غير صالح');
-
-            const current = [...products];
-            
-            // 1. عزل كافة المنتجات التي لا تتبع القسم الحالي (خامات، وغيرها)
-            const otherProducts = current.filter(p => {
-                const isFinished = p.warehouse === 'finished';
-                const pCat = (p.category || '').trim();
-                if (activeCategory === 'بيوتولوجى') return pCat !== 'بيوتولوجى' || !isFinished;
-                return pCat === 'خامات' || !isFinished || pCat === 'بيوتولوجى';
-            });
-
-            // 2. تصفية المنتجات الحالية في هذا القسم للبحث فيها فقط
-            const currentSectionItems = current.filter(p => {
-                const isFinished = p.warehouse === 'finished';
-                const pCat = (p.category || '').trim();
-                if (activeCategory === 'بيوتولوجى') return isFinished && pCat === 'بيوتولوجى';
-                return isFinished && pCat !== 'بيوتولوجى' && !pCat.includes('خامات');
-            });
-
-            const newOrderedItems: Product[] = [];
-            let updatedCount = 0;
-            let addedCount = 0;
-
-            jsonData.forEach((row: any) => {
-                const excelCode = String(row['كود ثانوي'] || row['كود الصنف دريف'] || row['كود الصنف'] || row['كود دريف'] || row.Barcode || row['الكود'] || '').trim();
-                const excelName = String(row['الصنف'] || row['اسم الصنف'] || row.Name || row['الاسم'] || '').trim();
-                if (!excelCode && !excelName) return;
-
-                const excelJdeP = String(row['كود JDE معبأ'] || row['كود الصنف JDE معبأ'] || '').trim();
-                const excelJdeB = String(row['كود JDE صب'] || row['كود الصنف JDE صب'] || '').trim();
-                const openingB = Number(row['رصيد أول صب'] || row['رصيد أول صب (ثابت)'] || row['رصيد صب'] || row['Opening Bulk'] || 0);
-                const openingP = Number(row['رصيد أول معبأ'] || row['رصيد أول معبأ (ثابت)'] || row['رصيد معبأ'] || row['Opening Packed'] || 0);
-                const unit = String(row['الوحدة'] || row.Unit || 'طن').trim();
-                
-                // البحث في أصناف القسم الحالي فقط لمنع تحويل صنف من "خام" إلى "تام" بالخطأ
-                const existingIdx = currentSectionItems.findIndex(p => {
-                    const dbBarcode = normalizeForMatch(p.barcode);
-                    const dbName = normalizeForMatch(p.name);
-                    const exCodeNorm = normalizeForMatch(excelCode);
-                    const exNameNorm = normalizeForMatch(excelName);
-                    return (excelCode && exCodeNorm === dbBarcode) || (excelName && exNameNorm === dbName);
-                });
-
-                if (existingIdx >= 0) {
-                    const p = currentSectionItems[existingIdx];
-                    newOrderedItems.push({
-                        ...p,
-                        jdeCodePacked: excelJdeP || p.jdeCodePacked,
-                        jdeCodeBulk: excelJdeB || p.jdeCodeBulk,
-                        initialStockBulk: openingB,
-                        initialStockPacked: openingP,
-                        unit: unit || p.unit,
-                        category: activeCategory,
-                        warehouse: 'finished'
-                    });
-                    updatedCount++;
-                } else {
-                    newOrderedItems.push({
-                        id: `FIN-IMP-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                        name: excelName || `صنف جديد ${excelCode}`,
-                        barcode: excelCode || `ID-${Date.now()}`,
-                        jdeCodePacked: excelJdeP,
-                        jdeCodeBulk: excelJdeB,
-                        initialStockBulk: openingB,
-                        initialStockPacked: openingP,
-                        stockBulk: openingB,
-                        stockPacked: openingP,
-                        stock: openingB + openingP,
-                        unit: unit || 'طن',
-                        warehouse: 'finished',
-                        category: activeCategory,
-                        price: 0, cost: 0,
-                        sackWeight: excelName.includes('25') ? 25 : 50
-                    });
-                    addedCount++;
-                }
-            });
-
-            // دمج الأصناف الأخرى (الخامات وأقسام التام الأخرى) مع القائمة الجديدة المرتبة
-            const finalProducts = [...otherProducts, ...newOrderedItems];
-            dbService.saveProducts(finalProducts);
-            refreshProducts();
-            alert(`تم الاستيراد بنجاح لقطاع ${activeCategory}!\n- أصناف تم تحديثها: ${updatedCount}\n- أصناف أضيفت جديداً: ${addedCount}\n\nتم الحفاظ على الخامات وأصناف الأقسام الأخرى دون تغيير.`);
-        } catch (err) { 
-            alert('حدث خطأ أثناء قراءة الملف. تأكد من توافق أسماء الأعمدة.'); 
+        if (parentId) {
+            row.isChild = true;
+            row.I = prodFormula ? evaluateExcelFormula(prodFormula, excelCtx) : row.rawProductionFromMovements;
+        } else {
+            const childrenProduction = initialData
+                .filter(r => linkages[r.product.id]?.parentId === row.product.id)
+                .reduce((sum, r) => {
+                    const childLink = linkages[r.product.id];
+                    return sum + (childLink?.prodFormula ? evaluateExcelFormula(childLink.prodFormula, r) : r.rawProductionFromMovements);
+                }, 0);
+            row.isParent = childrenProduction > 0;
+            row.I = row.rawProductionFromMovements - childrenProduction;
         }
-        if (e.target) e.target.value = '';
-    };
-    reader.readAsArrayBuffer(file);
+
+        excelCtx.I = row.I;
+
+        if (totalFormula) {
+            row.Z = evaluateExcelFormula(totalFormula, excelCtx);
+        } else {
+            row.Z = (row.G + row.H + row.I + row.J + row.K + row.L + row.M + row.N) - (row.O + row.P + row.Q + row.R + row.S + row.T + row.U + row.V + row.W + row.X + row.Y);
+        }
+        
+        excelCtx.Z = row.Z;
+        row.AA = packedFormula ? evaluateExcelFormula(packedFormula, excelCtx) : (row.H + row.J + row.K + row.M) - (row.O + row.Q + row.S + row.U + row.V + row.X);
+        row.AF = row.AA - row.AB;
+        
+        return row;
+    }).filter(row => !hideZeroRows || Math.abs(row.Z) > 0.001).filter(row => row.product.name.includes(searchTerm));
+  }, [products, searchTerm, hideZeroRows, activeCategory, linkages, dateFilter]);
+
+  const saveLinkageUpdates = (itemId: string, updates: any) => {
+      const nextLinkages = { ...linkages, [itemId]: { ...(linkages[itemId] || {}), ...updates } };
+      setLinkages(nextLinkages);
+      dbService.saveLinkages(activeCategory, nextLinkages);
   };
 
-  const handleSaveNewProduct = () => {
-    if (!newProductForm.name || !newProductForm.barcode) {
-        alert('يرجى إكمال البيانات الأساسية (الاسم والباركود)');
-        return;
-    }
-    
-    const total = (newProductForm.initialStockBulk || 0) + (newProductForm.initialStockPacked || 0);
-    const product: Product = {
-        ...newProductForm as Product,
-        id: `FIN-${Date.now()}`,
-        stock: total,
-        stockBulk: newProductForm.initialStockBulk,
-        stockPacked: newProductForm.initialStockPacked,
-        category: activeCategory,
-        warehouse: 'finished',
-        price: 0,
-        cost: 0
-    };
-
-    dbService.saveProduct(product);
-    refreshProducts();
-    setIsAddModalOpen(false);
-    setNewProductForm({
-        name: '', barcode: '', jdeCodePacked: '', jdeCodeBulk: '', category: activeCategory, unit: 'طن', 
-        initialStockBulk: 0, initialStockPacked: 0, sackWeight: 50, warehouse: 'finished'
-    });
-    alert('تم إضافة الصنف الجديد بنجاح');
+  const formatEng = (val: any) => {
+      if (val === null || val === undefined || isNaN(val) || val === 0) return "-";
+      return Number(val).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   };
 
-  const startEdit = (productId: string, type: 'bulk' | 'packed' | 'emptySacks' | 'sackWeight', currentVal: number) => { 
-    setEditingCell({ productId, type, currentVal }); 
-    setEditValue(currentVal === 0 ? '' : currentVal.toString()); 
-  };
-
-  const cancelEdit = () => { setEditingCell(null); setEditValue(''); };
-  
-  const saveEdit = () => { 
-      if (!editingCell) return; const newValue = parseFloat(editValue); if (isNaN(newValue)) return; 
-      const product = products.find(p => p.id === editingCell.productId); if (!product) return; 
-      const updated = { ...product }; 
-      if (editingCell.type === 'sackWeight') updated.sackWeight = newValue; 
-      else if (editingCell.type === 'bulk') updated.initialStockBulk = newValue;
-      else if (editingCell.type === 'packed') updated.initialStockPacked = newValue;
-      dbService.saveProduct(updated); refreshProducts(); cancelEdit(); 
-  };
-
-  const getStickyStyle = (colIndex: number, rowIndex: number, isHeader: boolean, bgColor: string = '#ffffff') => {
-      const isStickyCol = colIndex < frozenCols;
-      const isStickyRow = rowIndex < frozenRows; 
-      if (!isStickyCol && !isStickyRow) return {};
-      const style: React.CSSProperties = { position: 'sticky' };
-      if (isStickyCol) {
-          let offset = 0; for(let i=0; i < colIndex; i++) offset += columnWidths[i] || tableStyles.columnWidth;
-          style.right = `${offset}px`; style.zIndex = 10;
-      }
-      if (isStickyRow) { style.top = `${rowIndex === 0 ? 0 : 100}px`; style.zIndex = 20; }
-      style.backgroundColor = bgColor; return style;
-  };
-
-  const handlePrint = () => {
-      const config = settings.printConfigs[PRINT_CONTEXT] || settings.printConfigs['default'];
-      const htmlContent = tableRef.current?.parentElement?.innerHTML || '';
-      printService.printHtmlContent(config.reportTitle || `الأرصدة النهائية - قطاع ${activeCategory}`, htmlContent, PRINT_CONTEXT, settings);
-  };
-
-  const headers = [ 'كود الصنف JDE معبأ', 'كود الصنف JDE صب', 'كود ثانوي', t('item'), t('unit'), 'رصيد أول صب (ثابت)', 'رصيد أول معبأ (ثابت)', t('prodBulk'), t('receivedPacked'), t('adjInPacked'), t('adjInBulk'), t('returnClientPacked'), t('returnClientBulk'), t('transferPacked'), t('transferBulk'), t('salesFarmPacked'), t('salesFarmBulk'), t('salesClientPacked'), t('salesClientBulk'), t('outletTransfers'), t('unfinishedPacked'), t('unfinishedBulk'), t('adjOutPacked'), t('adjOutBulk'), t('totalBalance'), t('packedBalance'), t('openingCount'), t('sackWeight'), t('emptySacks'), t('siloRemains'), t('diff') ];
-
-  const getCellStyle = (isNumeric: boolean = false): React.CSSProperties => ({
-      fontFamily: isNumeric ? 'Inter, sans-serif' : tableStyles.fontFamily,
-      fontSize: isNumeric ? '14px' : '12px',
-      fontWeight: tableStyles.isBold ? 'bold' : 'normal',
-      fontStyle: tableStyles.isItalic ? 'italic' : 'normal',
-      textDecoration: tableStyles.isUnderline ? 'underline' : 'none',
-      textAlign: 'center', 
-      verticalAlign: tableStyles.verticalAlign,
-      ...(isNumeric ? forceEnNumsStyle : {})
-  });
+  const ColorPicker = ({ productId }: { productId: string }) => (
+    <div className="flex items-center gap-0.5 justify-center no-print">
+        {['#ffff00', '#90ee90', '#ffcccb', '#add8e6', ''].map(c => (
+            <button 
+                key={c} 
+                onClick={() => handleUpdateColor(productId, c)} 
+                className={"w-2.5 h-2.5 rounded-full border border-black/20 " + (!c ? 'bg-white flex items-center justify-center' : '')} 
+                style={{ backgroundColor: c }}
+            >
+                {!c && <X size={6} className="text-slate-400"/>}
+            </button>
+        ))}
+    </div>
+  );
 
   return (
-    <div className="space-y-4 animate-fade-in font-cairo" dir="rtl">
+    <div className="space-y-3 animate-fade-in font-cairo" dir="rtl">
         {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context={PRINT_CONTEXT} />}
         
-        <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => {setTableStyles(DEFAULT_STYLES); setColumnWidths(INITIAL_COLUMN_WIDTHS); refreshProducts();}} />
-
-        <div className="bg-[#f3f4f6] p-3 rounded-xl border border-gray-300 shadow-sm flex flex-wrap items-center justify-between gap-4 no-print select-none">
-            <div className="flex gap-2 items-center flex-1">
-                <div className="flex bg-white border border-gray-300 rounded-lg p-1 shadow-sm mr-2">
-                    <button onClick={() => setActiveCategory('أعلاف')} className={`px-4 py-1.5 rounded-md text-xs font-black transition-all ${activeCategory === 'أعلاف' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>الأعلاف</button>
-                    <button onClick={() => setActiveCategory('بيوتولوجى')} className={`px-4 py-1.5 rounded-md text-xs font-black transition-all ${activeCategory === 'بيوتولوجى' ? 'bg-amber-50 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>البيوتولوجى</button>
+        <div className="bg-white/80 backdrop-blur-md p-2 rounded-2xl border border-white shadow-lg flex flex-wrap items-center justify-between gap-2 no-print">
+            <div className="flex items-center gap-1.5">
+                <div className="flex bg-slate-100 p-1 rounded-xl shadow-inner">
+                    <button onClick={() => setActiveCategory('أعلاف')} className={`px-3 py-1 rounded-lg text-[10px] font-black transition-all ${activeCategory === 'أعلاف' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>الأعلاف</button>
+                    <button onClick={() => setActiveCategory('بيوتولوجى')} className={`px-3 py-1 rounded-lg text-[10px] font-black transition-all ${activeCategory === 'بيوتولوجى' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>بيوتولوجى</button>
+                </div>
+                
+                <div className="flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-xl border border-indigo-100 shadow-sm">
+                    <Calendar size={12} className="text-indigo-600" />
+                    <div className="flex items-center gap-1">
+                        <input type="date" value={dateFilter.start} onChange={e => setDateFilter({...dateFilter, start: e.target.value})} className="bg-transparent border-none outline-none font-black text-[10px] text-indigo-900" style={forceEnNumsStyle}/>
+                        <span className="text-indigo-300 font-bold text-[10px]">»</span>
+                        <input type="date" value={dateFilter.end} onChange={e => setDateFilter({...dateFilter, end: e.target.value})} className="bg-transparent border-none outline-none font-black text-[10px] text-indigo-900" style={forceEnNumsStyle}/>
+                    </div>
                 </div>
 
-                <ReportActionsBar 
-                    onPrint={handlePrint} 
-                    onExport={handleExport} 
-                    onImport={() => fileInputRef.current?.click()}
-                    onSettings={() => setShowPrintModal(true)} 
-                    hideImport={false} 
-                />
-                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleImport} />
-                
-                <button onClick={() => setHideZeroRows(!hideZeroRows)} className={`px-4 h-[42px] rounded-lg font-bold border transition-all flex items-center gap-2 text-sm ${hideZeroRows ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-600'}`}>
-                    {hideZeroRows ? <EyeOff size={18}/> : <Eye size={18}/>}
-                    <span className="hidden md:inline">{hideZeroRows ? 'إظهار الصفري' : 'إخفاء الصفري'}</span>
-                </button>
-
-                <button 
-                    onClick={() => setIsAddModalOpen(true)} 
-                    className="px-6 h-[42px] rounded-lg font-black border bg-blue-600 border-blue-700 text-white transition-all flex items-center gap-2 text-xs hover:bg-blue-700 shadow-md transform active:scale-95"
-                >
-                    <Plus size={18}/>
-                    <span>إضافة صنف ({activeCategory})</span>
+                <button onClick={() => setHideZeroRows(!hideZeroRows)} className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-xl bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50">
+                    {hideZeroRows ? <EyeOff size={14} className="text-orange-500" /> : <Eye size={14} className="text-blue-500" />}
+                    <span>{hideZeroRows ? 'عرض الصفري' : 'إخفاء الصفري'}</span>
                 </button>
             </div>
-            <div className="relative flex-1 max-md:hidden">
-                <input className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400 font-bold" placeholder={`بحث في قطاع ${activeCategory}...`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                <Search className="absolute left-2 top-2.5 text-gray-400" size={16}/>
+
+            <div className="flex items-center gap-2 flex-1 max-w-lg">
+                <div className="relative flex-1 group">
+                    <input className="w-full pr-8 pl-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50/50 outline-none focus:border-indigo-500 focus:bg-white transition-all font-bold text-[11px] shadow-inner" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    <Search className="absolute right-2.5 top-2 text-slate-300" size={14} />
+                </div>
+                
+                <div className="flex gap-1">
+                    <button onClick={handleExportExcel} className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100 shadow-sm hover:bg-emerald-600 hover:text-white transition-all"><FileUp size={16}/></button>
+                    <button onClick={() => setShowPrintModal(true)} className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 transition-all shadow-sm"><Settings size={16}/></button>
+                    <button onClick={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')} className="p-1.5 bg-[#1e293b] text-white rounded-lg shadow-lg hover:bg-black transition-all"><Printer size={16}/></button>
+                </div>
             </div>
         </div>
-        
-        <div className="relative w-full overflow-hidden rounded-xl shadow-xl border border-gray-300 bg-white">
-            <div className="overflow-auto max-w-full max-h-[75vh]">
-                <table className="w-full border-collapse" ref={tableRef}>
-                    <thead className="bg-[#1f2937] text-white">
+
+        <div className="relative overflow-hidden rounded-2xl shadow-xl border-2 border-black bg-white">
+            <div className="overflow-auto max-h-[65vh] origin-top-right">
+                <table className="w-full border-collapse min-w-[3200px]" ref={tableRef}>
+                    <thead className="sticky top-0 z-20 bg-[#0f172a] text-yellow-400 h-10 shadow-lg border-b border-slate-700">
                         <tr>
-                            {headers.map((h, i) => (
-                                <th key={i} className="p-2 border border-gray-600 whitespace-nowrap px-4 py-3 shadow-sm font-black uppercase tracking-tighter text-center" style={{...getStickyStyle(i, 0, true, '#1f2937'), minWidth: columnWidths[i] || tableStyles.columnWidth, width: columnWidths[i] || tableStyles.columnWidth, fontSize: '12px'}}>
-                                    {h}
-                                </th>
-                            ))}
+                            <th className="p-1 border border-slate-700 text-[9px] font-black uppercase">م</th>
+                            <th className="p-1 border border-slate-700 w-10 no-print"><Palette size={12} className="mx-auto"/></th>
+                            <th className="p-1 border border-slate-700 text-[10px]">JDE معبأ</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">JDE صب</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">كود ثانوي</th>
+                            <th className="p-1 border border-slate-700 text-right pr-4 min-w-[200px] text-[10px]">الصنف</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">الوحدة</th>
+                            <th className="p-1 border border-slate-700 bg-yellow-900/20 text-yellow-100 text-[10px]">أول صب (G)</th>
+                            <th className="p-1 border border-slate-700 bg-yellow-900/40 text-yellow-100 text-[10px]">أول معبأ (H)</th>
+                            <th className="p-1 border border-slate-700 text-blue-300 text-[10px]">الإنتاج (I)</th>
+                            <th className="p-1 border border-slate-700 text-emerald-300 text-[10px]">وارد معبأ (J)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">تسوية(+) م (K)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">تسوية(+) ص (L)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">مرتجع م (M)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">مرتجع ص (N)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">تحويل م (O)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">تحويل ص (P)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">مزارع م (Q)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">مزارع ص (R)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">عملاء م (S)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">عملاء ص (T)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">منافذ (U)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">غير م (V)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">غير ص (W)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">عجز م (X)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">عجز ص (Y)</th>
+                            <th className="p-1 border border-slate-700 bg-indigo-800 text-white font-black text-xs">الرصيد النهائي (Z)</th>
+                            <th className="p-1 border border-slate-700 bg-blue-800 text-white font-black text-xs">رصيد المعبأ (AA)</th>
+                            <th className="p-1 border border-slate-700 bg-slate-800 text-slate-300 text-[10px]">جرد (AB)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">الشكارة (AC)</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">الفارغ</th>
+                            <th className="p-1 border border-slate-700 text-[10px]">صوامع</th>
+                            <th className="p-1 border border-slate-700 bg-rose-900 text-white font-black text-[10px]">الفرق</th>
+                            <th className="p-1 border border-slate-700 bg-red-900/20 w-10 text-[10px]">سلة</th>
                         </tr>
                     </thead>
-                    <tbody className="text-gray-700">
+                    <tbody className="text-slate-700 font-bold text-[11px]">
                         {reportData.map((row, idx) => (
-                            <tr key={row.product.id} className="border-b hover:bg-blue-50 transition-colors bg-white h-11">
-                                <td className="p-2 border bg-gray-50" style={{...getStickyStyle(0, idx + 1, false, '#f9fafb'), minWidth: columnWidths[0], ...getCellStyle(true)}}>{row.product.jdeCodePacked || '-'}</td>
-                                <td className="p-2 border bg-gray-50" style={{...getStickyStyle(1, idx + 1, false, '#f9fafb'), minWidth: columnWidths[1], ...getCellStyle(true)}}>{row.product.jdeCodeBulk || '-'}</td>
-                                <td className="p-2 border bg-gray-50" style={{...getStickyStyle(2, idx + 1, false, '#f9fafb'), minWidth: columnWidths[2], ...getCellStyle(true)}}>{row.product.barcode}</td>
-                                <td className="p-2 border bg-white font-black text-indigo-900" style={{...getStickyStyle(3, idx + 1, false, '#ffffff'), minWidth: columnWidths[3], ...getCellStyle()}}>{row.product.name}</td>
-                                <td className="p-2 border bg-white" style={{...getStickyStyle(4, idx + 1, false, '#ffffff'), minWidth: columnWidths[4], ...getCellStyle()}}>{row.product.unit}</td>
-                                <td className="p-2 border bg-yellow-100 cursor-pointer text-blue-900 border-yellow-300 font-bold" style={{...getStickyStyle(5, idx + 1, false, '#fef9c3'), ...getCellStyle(true)}} onClick={() => !isViewOnly && startEdit(row.product.id, 'bulk', row.openingBulk)}>{formatEng(row.openingBulk)}</td>
-                                <td className="p-2 border bg-yellow-100 cursor-pointer text-blue-900 border-yellow-300 font-bold" style={{...getStickyStyle(6, idx + 1, false, '#fef9c3'), ...getCellStyle(true)}} onClick={() => !isViewOnly && startEdit(row.product.id, 'packed', row.openingPacked)}>{formatEng(row.openingPacked)}</td>
-                                <td className="p-1 border text-green-700" style={getCellStyle(true)}>{formatEng(row.prodBulk)}</td>
-                                <td className="p-1 border text-green-700" style={getCellStyle(true)}>{formatEng(row.receivedPacked)}</td>
-                                <td className="p-1 border text-green-600" style={getCellStyle(true)}>{formatEng(row.adjInPacked)}</td>
-                                <td className="p-1 border text-green-600" style={getCellStyle(true)}>{formatEng(row.adjInBulk)}</td>
-                                <td className="p-1 border text-red-500" style={getCellStyle(true)}>{formatEng(row.returnClientPacked)}</td>
-                                <td className="p-1 border text-red-500" style={getCellStyle(true)}>{formatEng(row.returnClientBulk)}</td>
-                                <td className="p-1 border text-orange-600" style={getCellStyle(true)}>{formatEng(row.transferPacked)}</td>
-                                <td className="p-1 border text-orange-600" style={getCellStyle(true)}>{formatEng(row.transferBulk)}</td>
-                                <td className="p-1 border text-blue-600" style={getCellStyle(true)}>{formatEng(row.salesFarmPacked)}</td>
-                                <td className="p-1 border text-blue-600" style={getCellStyle(true)}>{formatEng(row.salesFarmBulk)}</td>
-                                <td className="p-1 border text-purple-600" style={getCellStyle(true)}>{formatEng(row.salesClientPacked)}</td>
-                                <td className="p-1 border text-purple-600" style={getCellStyle(true)}>{formatEng(row.salesClientBulk)}</td>
-                                <td className="p-1 border text-indigo-800" style={getCellStyle(true)}>{formatEng(row.outletTransfers)}</td>
-                                <td className="p-1 border bg-gray-100" style={getCellStyle(true)}>{formatEng(row.unfinishedPacked)}</td>
-                                <td className="p-1 border bg-gray-100" style={getCellStyle(true)}>{formatEng(row.unfinishedBulk)}</td>
-                                <td className="p-1 border text-red-600" style={getCellStyle(true)}>{formatEng(row.adjOutPacked)}</td>
-                                <td className="p-1 border text-red-600" style={getCellStyle(true)}>{formatEng(row.adjOutBulk)}</td>
-                                <td className="p-2 border bg-blue-100 text-blue-900 shadow-inner font-black" style={getCellStyle(true)}>{formatEng(row.totalBalance)}</td>
-                                <td className="p-2 border bg-indigo-100 text-indigo-900 shadow-inner font-black" style={getCellStyle(true)}>{formatEng(row.packedBalance)}</td>
-                                <td className="p-1 border bg-orange-50" style={getCellStyle(true)}>{formatEng(row.openingCount)}</td>
-                                <td className="p-1 border bg-white cursor-pointer" style={getCellStyle()} onClick={() => !isViewOnly && startEdit(row.product.id, 'sackWeight', row.sackWeight)}>{row.sackWeight > 0 ? row.sackWeight : ''}</td>
-                                <td className="p-1 border bg-white cursor-pointer" style={getCellStyle(true)} onClick={() => !isViewOnly && startEdit(row.product.id, 'emptySacks', row.emptySacks)}>{formatEng(row.emptySacks)}</td>
-                                <td className="p-1 border text-gray-800" style={getCellStyle(true)}>{formatEng(row.siloRemains)}</td>
-                                <td className="p-1 border text-red-700" style={getCellStyle(true)}>{formatEng(row.diff)}</td>
+                            <tr key={row.product.id} className={`border-b border-black h-8 hover:brightness-95 transition-all cursor-default`} style={{ backgroundColor: row.product.customFields?.rowColor || (idx % 2 === 0 ? 'white' : '#f8fafc') }}>
+                                <td className="p-0.5 border" style={forceEnNumsStyle}>{idx + 1}</td>
+                                <td className="p-0.5 border no-print"><ColorPicker productId={row.product.id} /></td>
+                                <td className="p-0.5 border font-mono text-[9px] text-slate-400" style={forceEnNumsStyle}>{row.product.jdeCodePacked || '-'}</td>
+                                <td className="p-0.5 border font-mono text-[9px] text-slate-400" style={forceEnNumsStyle}>{row.product.jdeCodeBulk || '-'}</td>
+                                <td className="p-0.5 border font-mono text-[9px] text-indigo-600" style={forceEnNumsStyle}>{row.product.barcode}</td>
+                                <td className="p-0.5 border text-right pr-2 font-black text-slate-900 text-[11px]">{row.product.name}</td>
+                                <td className="p-0.5 border text-[10px] text-slate-400">{row.product.unit || 'طن'}</td>
+                                <td className="p-0.5 border bg-yellow-50/10" style={forceEnNumsStyle}>{formatEng(row.G)}</td>
+                                <td className="p-0.5 border bg-yellow-50/20" style={forceEnNumsStyle}>{formatEng(row.H)}</td>
+                                <td 
+                                    className={`p-0.5 border cursor-pointer hover:bg-blue-100 ${row.isChild ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100' : (row.isParent ? 'bg-orange-50' : 'text-blue-700')}`} 
+                                    style={forceEnNumsStyle} 
+                                    onClick={() => !isViewOnly && setLinkingModalItem({...row, formulaType: 'prod'})}
+                                >
+                                    <div className="flex items-center justify-center gap-0.5">
+                                        {formatEng(row.I)}
+                                        {row.isChild && <LinkIcon size={10} className="text-blue-400 animate-pulse" />}
+                                    </div>
+                                </td>
+                                <td className="p-0.5 border text-emerald-700" style={forceEnNumsStyle}>{formatEng(row.J)}</td>
+                                <td className="p-0.5 border" style={forceEnNumsStyle}>{formatEng(row.K)}</td>
+                                <td className="p-0.5 border" style={forceEnNumsStyle}>{formatEng(row.L)}</td>
+                                <td className="p-0.5 border text-rose-600" style={forceEnNumsStyle}>{formatEng(row.M)}</td>
+                                <td className="p-0.5 border text-rose-600" style={forceEnNumsStyle}>{formatEng(row.N)}</td>
+                                <td className="p-0.5 border" style={forceEnNumsStyle}>{formatEng(row.O)}</td>
+                                <td className="p-0.5 border" style={forceEnNumsStyle}>{formatEng(row.P)}</td>
+                                <td className="p-0.5 border text-blue-600" style={forceEnNumsStyle}>{formatEng(row.Q)}</td>
+                                <td className="p-0.5 border text-blue-600" style={forceEnNumsStyle}>{formatEng(row.R)}</td>
+                                <td className="p-0.5 border text-indigo-600" style={forceEnNumsStyle}>{formatEng(row.S)}</td>
+                                <td className="p-0.5 border text-indigo-600" style={forceEnNumsStyle}>{formatEng(row.T)}</td>
+                                <td className="p-0.5 border text-purple-700" style={forceEnNumsStyle}>{formatEng(row.U)}</td>
+                                <td className="p-0.5 border text-slate-400" style={forceEnNumsStyle}>{formatEng(row.V)}</td>
+                                <td className="p-0.5 border text-slate-400" style={forceEnNumsStyle}>{formatEng(row.W)}</td>
+                                <td className="p-0.5 border text-red-600" style={forceEnNumsStyle}>{formatEng(row.X)}</td>
+                                <td className="p-0.5 border text-red-600" style={forceEnNumsStyle}>{formatEng(row.Y)}</td>
+                                <td className="p-0.5 border bg-indigo-900 text-white font-black text-[11px] shadow-inner cursor-pointer hover:bg-indigo-700" style={forceEnNumsStyle} onClick={() => !isViewOnly && setLinkingModalItem({...row, formulaType: 'total'})}>{formatEng(row.Z)}</td>
+                                <td className="p-0.5 border bg-blue-600 text-white font-black text-[11px] cursor-pointer shadow-inner hover:bg-blue-400" style={forceEnNumsStyle} onClick={() => !isViewOnly && setLinkingModalItem({...row, formulaType: 'packed'})}>{formatEng(row.AA)}</td>
+                                <td className="p-0.5 border bg-slate-50 text-slate-400" style={forceEnNumsStyle}>{formatEng(row.AB)}</td>
+                                <td className="p-0.5 border bg-slate-50/10" style={forceEnNumsStyle}>
+                                    <input type="number" step="0.1" defaultValue={row.AC} onBlur={(e) => handleSackWeightUpdate(row.product.id, e.target.value)} className="w-full bg-transparent text-center font-black text-slate-700 outline-none text-[10px]" style={forceEnNumsStyle} disabled={isViewOnly}/>
+                                </td>
+                                <td className="p-0.5 border text-slate-300" style={forceEnNumsStyle}>{formatEng(row.AD)}</td>
+                                <td className="p-0.5 border text-indigo-400 font-bold" style={forceEnNumsStyle}>{formatEng(row.AE)}</td>
+                                <td className={`p-0.5 border font-black text-[11px] ${Math.abs(row.AF) > 0.001 ? 'bg-rose-50/50 text-rose-600' : 'text-emerald-600'}`} style={forceEnNumsStyle}>{formatEng(row.AF)}</td>
+                                <td className="p-0.5 border text-center"><button onClick={() => setDeleteId(row.product.id)} className="text-slate-200 hover:text-rose-600 transition-colors p-1"><Trash2 size={12} /></button></td>
                             </tr>
                         ))}
                     </tbody>
@@ -515,60 +415,111 @@ export const DetailedFinishedTable: React.FC<Props> = ({ filterCategory: initial
             </div>
         </div>
 
-        {isAddModalOpen && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 font-cairo" dir="rtl">
-                <GlassCard className="w-full max-w-2xl relative bg-white border-t-4 border-blue-600 p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
-                    <button onClick={() => setIsAddModalOpen(false)} className="absolute top-4 left-4 text-gray-400 hover:text-red-500 transition-colors"><X size={24}/></button>
-                    <h3 className="text-xl font-black mb-8 text-right text-blue-900 border-b pb-2 flex items-center gap-2">
-                        <Plus size={20}/> إضافة صنف لقطاع ({activeCategory})
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="md:col-span-2">
-                            <GlassInput label="اسم الصنف الكامل" value={newProductForm.name} onChange={e => setNewProductForm({...newProductForm, name: e.target.value})} placeholder="مثال: صنف بيوتولوجى 1"/>
+        {/* Modal إدارة المعادلات والربط */}
+        <AnimatePresence>
+            {linkingModalItem && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-cairo">
+                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border-t-8 border-indigo-600">
+                        <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-black text-indigo-900 flex items-center gap-2">
+                                    <Calculator size={24}/> برمجة المنطق الحسابي
+                                </h3>
+                                <p className="text-xs text-slate-500 font-bold mt-1">تعديل معادلة ({linkingModalItem.formulaType === 'prod' ? 'الإنتاج' : linkingModalItem.formulaType === 'packed' ? 'رصيد المعبأ' : 'الرصيد الكلي'}) لـ {linkingModalItem.product.name}</p>
+                            </div>
+                            <button onClick={() => setLinkingModalItem(null)} className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-full transition-all"><X size={24}/></button>
                         </div>
-                        <GlassInput label="الكود الثانوي (دريف)" value={newProductForm.barcode} onChange={e => setNewProductForm({...newProductForm, barcode: e.target.value})} placeholder="رقم الكود..." />
-                        <div className="flex flex-col gap-2">
-                            <label className="text-gray-600 text-sm font-bold">التصنيف</label>
-                            <input className="bg-gray-200 rounded-xl px-4 py-3 border-none font-bold text-slate-500" value={activeCategory} readOnly />
-                        </div>
-                        <GlassInput label="كود JDE معبأ" value={newProductForm.jdeCodePacked} onChange={e => setNewProductForm({...newProductForm, jdeCodePacked: e.target.value})} />
-                        <GlassInput label="كود JDE صب" value={newProductForm.jdeCodeBulk} onChange={e => setNewProductForm({...newProductForm, jdeCodeBulk: e.target.value})} />
-                        <GlassInput label="رصيد أول صب (ثابت)" type="number" step="any" value={newProductForm.initialStockBulk} onChange={e => setNewProductForm({...newProductForm, initialStockBulk: Number(e.target.value)})} />
-                        <GlassInput label="رصيد أول معبأ (ثابت)" type="number" step="any" value={newProductForm.initialStockPacked} onChange={e => setNewProductForm({...newProductForm, initialStockPacked: Number(e.target.value)})} />
-                        <GlassInput label="وزن الشكارة (كجم)" type="number" step="any" value={newProductForm.sackWeight} onChange={e => setNewProductForm({...newProductForm, sackWeight: Number(e.target.value)})} />
-                        <div className="flex flex-col gap-2">
-                            <label className="text-gray-600 text-sm font-bold">الوحدة</label>
-                            <select className="bg-gray-100 rounded-xl px-4 py-3 outline-none border border-transparent focus:border-blue-400 focus:bg-white transition-all shadow-inner font-bold" value={newProductForm.unit} onChange={e => setNewProductForm({...newProductForm, unit: e.target.value})}>
-                                <option value="طن">طن</option>
-                                <option value="كجم">كجم</option>
-                                <option value="شكارة">شكارة</option>
-                                <option value="عدد">عدد</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div className="mt-10 flex gap-3">
-                        <button onClick={handleSaveNewProduct} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2 text-lg active:scale-95 border-b-4 border-blue-900">
-                            <Save size={20}/> حفظ وإضافة الصنف
-                        </button>
-                        <button onClick={() => setIsAddModalOpen(false)} className="px-8 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors">إلغاء</button>
-                    </div>
-                </GlassCard>
-            </div>
-        )}
+                        <div className="p-6 space-y-6">
+                            {linkingModalItem.formulaType === 'prod' && (
+                                <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 shadow-inner">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <GitMerge size={20} className="text-blue-600"/>
+                                        <h4 className="font-black text-blue-900 text-sm">اختيار الخلية الأم</h4>
+                                    </div>
+                                    <select 
+                                        className="w-full p-3.5 rounded-xl border-2 border-white bg-white font-black text-sm outline-none focus:ring-4 focus:ring-blue-100 shadow-sm transition-all"
+                                        value={linkages[linkingModalItem.product.id]?.parentId || ""}
+                                        onChange={e => saveLinkageUpdates(linkingModalItem.product.id, { parentId: e.target.value })}
+                                    >
+                                        <option value="">-- بدون ربط (صنف مستقل) --</option>
+                                        {products.filter(p => p.warehouse === 'finished' && p.id !== linkingModalItem.product.id).map(p => (
+                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
 
-        {editingCell && (
-            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" dir="rtl">
-                <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-sm border-2 border-blue-50">
-                    <h4 className="font-bold text-lg mb-4 text-center font-cairo">تعديل جرد البداية (الثابت)</h4>
-                    <div className="space-y-4">
-                        <input type="number" step="any" className="w-full p-3 border-2 rounded-xl text-center text-3xl font-black outline-none focus:border-blue-600" value={editValue} onChange={e => setEditValue(e.target.value)} autoFocus onKeyDown={e => e.key === 'Enter' && saveEdit()}/>
-                        <div className="flex gap-2 font-cairo"><button onClick={saveEdit} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold">حفظ</button><button onClick={cancelEdit} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">إلغاء</button></div>
-                    </div>
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <FunctionSquare size={20} className="text-indigo-600"/>
+                                    <h4 className="font-black text-indigo-900 text-sm">محرر المعادلات</h4>
+                                </div>
+                                <div className="relative group">
+                                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-300 font-black text-3xl select-none group-focus-within:text-indigo-600 transition-colors">=</span>
+                                    <input 
+                                        autoFocus
+                                        className="w-full p-5 pl-12 rounded-2xl border-2 border-slate-100 bg-slate-50 font-mono font-black text-2xl text-indigo-700 outline-none focus:bg-white focus:border-indigo-400 shadow-inner transition-all"
+                                        placeholder="G + H + I ..."
+                                        value={linkages[linkingModalItem.product.id]?.[linkingModalItem.formulaType === 'prod' ? 'prodFormula' : linkingModalItem.formulaType === 'packed' ? 'packedFormula' : 'totalFormula'] || ""}
+                                        onChange={e => saveLinkageUpdates(linkingModalItem.product.id, { [linkingModalItem.formulaType === 'prod' ? 'prodFormula' : linkingModalItem.formulaType === 'packed' ? 'packedFormula' : 'totalFormula']: e.target.value })}
+                                    />
+                                </div>
+                                
+                                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2">
+                                    {FORMULA_VARIABLES.map(v => (
+                                        <button 
+                                            key={v.key}
+                                            onClick={() => {
+                                                const fKey = linkingModalItem.formulaType === 'prod' ? 'prodFormula' : linkingModalItem.formulaType === 'packed' ? 'packedFormula' : 'totalFormula';
+                                                const current = linkages[linkingModalItem.product.id]?.[fKey] || "";
+                                                saveLinkageUpdates(linkingModalItem.product.id, { [fKey]: current + v.key + " " });
+                                            }}
+                                            className={`p-2 rounded-xl border-2 text-[10px] font-black transition-all hover:scale-105 active:scale-95 shadow-sm flex flex-col items-center gap-0.5 ${v.color} border-current/10`}
+                                        >
+                                            <span className="text-[12px]">{v.key}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div className="flex gap-2 pt-2 border-t mt-4">
+                                    {['+', '-', '*', '/', '(', ')'].map(op => (
+                                        <button 
+                                            key={op}
+                                            onClick={() => {
+                                                const fKey = linkingModalItem.formulaType === 'prod' ? 'prodFormula' : linkingModalItem.formulaType === 'packed' ? 'packedFormula' : 'totalFormula';
+                                                const current = linkages[linkingModalItem.product.id]?.[fKey] || "";
+                                                saveLinkageUpdates(linkingModalItem.product.id, { [fKey]: current + op + " " });
+                                            }}
+                                            className="flex-1 py-3 bg-slate-100 hover:bg-indigo-600 hover:text-white rounded-xl font-black text-xl transition-all shadow-sm active:scale-90"
+                                        >
+                                            {op}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 border-t flex gap-3">
+                            <button onClick={() => setLinkingModalItem(null)} className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 border-b-4 border-indigo-900">
+                                <Check size={20}/> تأكيد وحفظ التغييرات
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    const fKey = linkingModalItem.formulaType === 'prod' ? 'prodFormula' : linkingModalItem.formulaType === 'packed' ? 'packedFormula' : 'totalFormula';
+                                    saveLinkageUpdates(linkingModalItem.product.id, { [fKey]: "", parentId: "" });
+                                }}
+                                className="px-6 py-4 bg-white text-rose-500 border border-rose-100 font-black rounded-2xl hover:bg-rose-50 transition-all"
+                            >
+                                <RotateCcw size={20}/> مسح
+                            </button>
+                        </div>
+                    </motion.div>
                 </div>
-            </div>
-        )}
+            )}
+        </AnimatePresence>
+
+        <ConfirmModal isOpen={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if (deleteId) { deleteProduct(deleteId); refreshProducts(); setDeleteId(null); } }} title="حذف صنف" message="هل تريد حذف الصنف نهائياً؟" confirmText="حذف" cancelText="تراجع" />
     </div>
   );
 };

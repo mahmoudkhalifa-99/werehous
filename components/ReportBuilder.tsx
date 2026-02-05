@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { GlassCard, GlassInput, GlassButton } from './NeumorphicUI';
 import { DataSourceType, ReportColumn, CustomReportConfig, UiConfig } from '../types';
-import { Save, Plus, ArrowRight, Table, CheckSquare, AlignLeft, Layout, AlertCircle, ArrowLeft, Calendar, Upload, Image as ImageIcon, Calculator, Trash2, Type, FileType, FileText, Users, Box, TrendingUp, ShoppingCart, RefreshCw, Filter, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
+// Added CreditCard to imports
+import { Save, Plus, ArrowRight, Table, CheckSquare, AlignLeft, Layout, AlertCircle, ArrowLeft, Calendar, Upload, Image as ImageIcon, Calculator, Trash2, Type, FileType, FileText, Users, Box, TrendingUp, ShoppingCart, RefreshCw, Filter, ListOrdered, ArrowUp, ArrowDown, CreditCard } from 'lucide-react';
 
 // Function to get translated Schemas
+// Fixed line 9: Added 'expenses' to schemas record
 const getSchemas = (t: (key: string, defaultVal?: string) => string): Record<DataSourceType, { key: string; label: string; type: string }[]> => ({
     sales: [
         { key: 'id', label: t('invoice'), type: 'text' },
@@ -71,10 +73,19 @@ const getSchemas = (t: (key: string, defaultVal?: string) => string): Record<Dat
         { key: 'username', label: t('username'), type: 'text' },
         { key: 'name', label: 'Full Name/الاسم', type: 'text' },
         { key: 'role', label: 'Role/الصلاحية', type: 'text' },
+    ],
+    expenses: [
+        { key: 'date', label: t('date'), type: 'date' },
+        { key: 'category', label: t('expenseCategory'), type: 'text' },
+        { key: 'payee', label: t('payee'), type: 'text' },
+        { key: 'amount', label: t('amount'), type: 'currency' },
+        { key: 'description', label: t('description'), type: 'text' },
+        { key: 'user', label: t('username'), type: 'text' },
     ]
 });
 
 // Function to get translated Sub-Sources
+// Fixed line 78: Added 'expenses' to sub sources record
 const getSubSources = (t: (key: string, defaultVal?: string) => string): Record<DataSourceType, { id: string; label: string }[]> => ({
     sales: [
         { id: 'all', label: t('filterAll') },
@@ -107,6 +118,9 @@ const getSubSources = (t: (key: string, defaultVal?: string) => string): Record<
         { id: 'pending', label: 'Pending/معلق' },
     ],
     users: [
+        { id: 'all', label: t('filterAll') }
+    ],
+    expenses: [
         { id: 'all', label: t('filterAll') }
     ]
 });
@@ -260,6 +274,8 @@ export const ReportBuilder: React.FC<Props> = ({ onClose }) => {
             case 'movements': return t('movementReport'); // Approx mapping
             case 'purchaseRequests': return t('purchaseRequest');
             case 'users': return 'Users/المستخدمين';
+            // Added expenses mapping
+            case 'expenses': return t('expenses');
             default: return key;
         }
     };
@@ -272,6 +288,8 @@ export const ReportBuilder: React.FC<Props> = ({ onClose }) => {
             case 'movements': return <RefreshCw size={20}/>;
             case 'purchaseRequests': return <FileText size={20}/>;
             case 'users': return <Users size={20}/>;
+            // Added expenses icon
+            case 'expenses': return <CreditCard size={20}/>;
             default: return <Table size={20}/>;
         }
     };

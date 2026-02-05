@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
   <head>
@@ -8,10 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-      // Shim process.env for browser environment
       window.process = {
         env: {
-          API_KEY: "" // Will be handled by the environment/Vite define
+          API_KEY: "" 
         }
       };
       
@@ -22,17 +22,6 @@
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
               cairo: ['Cairo', 'sans-serif'],
-            },
-            colors: {
-              glass: {
-                100: 'rgba(255, 255, 255, 0.1)',
-                200: 'rgba(255, 255, 255, 0.2)',
-                300: 'rgba(255, 255, 255, 0.3)',
-                border: 'rgba(255, 255, 255, 0.2)',
-                text: '#4a5568',
-                primary: '#667eea',
-                dark: '#2d3748'
-              }
             },
             boxShadow: {
               'neu-flat': '5px 5px 10px #d1d9e6, -5px -5px 10px #ffffff',
@@ -59,54 +48,36 @@
       }
     </script>
     <style>
-      body {
-        background: #eef2f6;
-        overflow-x: hidden;
-      }
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e0;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #a0aec0;
-      }
-      .no-print {
-        @media print {
-          display: none !important;
-        }
-      }
+      body { background: #eef2f6; overflow-x: hidden; margin: 0; }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
+      .no-print { @media print { display: none !important; } }
     </style>
-    <script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "react-router-dom": "https://esm.sh/react-router-dom@7.1.1?external=react,react-dom",
-    "lucide-react": "https://esm.sh/lucide-react@0.471.0?external=react",
-    "framer-motion": "https://esm.sh/framer-motion@11.15.0?external=react,react-dom",
-    "recharts": "https://esm.sh/recharts@2.15.0?external=react,react-dom",
-    "xlsx": "https://esm.sh/xlsx@0.18.5",
-    "exceljs": "https://esm.sh/exceljs@4.4.0",
-    "file-saver": "https://esm.sh/file-saver@2.0.5",
-    "@google/genai": "https://esm.sh/@google/genai@0.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "path": "https://esm.sh/path@^0.12.7",
+    "framer-motion": "https://esm.sh/framer-motion@^12.25.0",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "vite": "https://esm.sh/vite@^7.3.0",
+    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "url": "https://esm.sh/url@^0.11.4"
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "path": "https://esm.sh/path@^0.12.7",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.12.0",
+    "xlsx": "https://esm.sh/xlsx@^0.18.5",
+    "exceljs": "https://esm.sh/exceljs@^4.4.0",
+    "url": "https://esm.sh/url@^0.11.4",
+    "file-saver": "https://esm.sh/file-saver@^2.0.5",
+    "firebase/": "https://esm.sh/firebase@^12.7.0/"
   }
 }
 </script>
-      <link rel="stylesheet" href="/index.css">
+<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>

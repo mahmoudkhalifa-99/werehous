@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
-import { Search, Printer, Settings, Calendar, FileUp, FileDown, Table as TableIcon } from 'lucide-react';
+import { Search, Printer, Settings, Calendar, FileUp, FileDown, Table as TableIcon, ZoomIn, ChevronDown } from 'lucide-react';
 import { printService } from '../services/printing';
 import { PrintSettingsModal } from './PrintSettingsModal';
 import * as XLSX from 'xlsx';
@@ -23,6 +23,7 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [pageScale, setPageScale] = useState(100);
   
   const PRINT_CONTEXT = filterCategory === 'بيوتولوجى' ? 'sales_petrology_daily' : 'sales_daily_table';
   const sales = dbService.getSales();
@@ -32,6 +33,7 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
       "الشهر", 
       "وقت التسجيل", 
       "رقم الفاتورة", 
+      "رقم الدفتري",
       "تاريخ الفاتورة",
       "الوردية",
       "كود العميل", 
@@ -86,6 +88,7 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
               month: monthStr,
               regTime: regTime,
               invoiceId: sale.id,
+              manualInvoiceNo: sale.manualInvoiceNo || '-',
               date: sale.date.split('T')[0],
               shift: sale.shift || '-',
               customerCode: sale.customerCode || '-',
@@ -123,6 +126,7 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
           row.customerName.includes(searchTerm) || 
           row.itemName.includes(searchTerm) || 
           row.invoiceId.includes(searchTerm) ||
+          row.manualInvoiceNo.includes(searchTerm) ||
           row.carNo.includes(searchTerm)
       );
   }, [sales, selectedDate, searchTerm, filterCategory]);
@@ -159,10 +163,24 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
                       <Settings size={20}/>
                   </button>
 
-                  <div className="bg-blue-50 border border-blue-100 px-6 py-2 rounded-2xl text-center min-w-[200px] shadow-inner">
+                  {/* Scale Control */}
+                  <div className="relative group">
+                    <button className="px-4 py-2.5 rounded-xl font-black border bg-white border-slate-200 text-slate-700 transition-all flex items-center gap-2 text-xs hover:bg-slate-50 shadow-sm">
+                        <ZoomIn size={18}/>
+                        <span>حجم العرض: {pageScale}%</span>
+                        <ChevronDown size={14}/>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-32 animate-fade-in">
+                        {[100, 90, 80, 70, 60, 50].map(s => (
+                            <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                        ))}
+                    </div>
+                </div>
+
+                  <div className="bg-blue-50 border border-blue-100 px-6 py-2 rounded-2xl text-center min-w-[2000px] shadow-inner">
                       <p className="text-[10px] text-blue-500 font-black mb-1 uppercase">إجمالي المحمل اليوم</p>
                       <p className="text-blue-900 font-black text-xl" style={forceEnNumsStyle}>
-                          {totalActualLoaded.toLocaleString(undefined, { minimumFractionDigits: 3 })} <span className="text-xs">طن</span>
+                          {(totalActualLoaded || 0).toLocaleString(undefined, { minimumFractionDigits: 3 })} <span className="text-xs">طن</span>
                       </p>
                   </div>
               </div>
@@ -191,13 +209,15 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
           </div>
 
           <div id="daily-sales-print-area" className="bg-white rounded-[2rem] shadow-premium border-2 border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto max-h-[75vh]">
-                  {/* تم استبدال min-w بـ w-max ليتناسب العرض تلقائياً مع المحتوى */}
+              <div 
+                className="overflow-x-auto max-h-[75vh] origin-top-right transition-all duration-300"
+                style={{ zoom: pageScale / 100 }}
+              >
                   <table className="w-max min-w-full text-center whitespace-nowrap border-collapse">
                       <thead className="sticky top-0 z-20">
                           <tr className="bg-[#0f172a] text-yellow-400 h-14 shadow-lg border-b border-slate-700">
                               {columns.map((col, i) => (
-                                  <th key={i} className={`px-4 py-2 border-l border-slate-700 font-black text-[10px] uppercase tracking-tighter ${col === 'م' ? 'w-12' : ''}`}>
+                                  <th key={i} className={`px-4 py-2 border-l border-slate-700 font-black text-[10px] uppercase tracking-tighter ${col === 'م' ? 'w-[25px] min-w-[25px] max-w-[25px] !px-0' : ''}`}>
                                       {col}
                                   </th>
                               ))}
@@ -206,18 +226,19 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
                       <tbody className="text-gray-700 text-[12px] font-bold">
                           {filteredData.map((row, idx) => (
                               <tr key={idx} className={`border-b border-slate-100 hover:bg-blue-50 transition-colors h-12 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                                  <td className="p-2 border-l border-slate-100 bg-slate-100/30 w-12" style={forceEnNumsStyle}>{idx + 1}</td>
+                                  <td className="p-0 border-l border-slate-100 bg-slate-100/30 w-[25px] min-w-[25px] max-w-[25px] text-center font-black" style={{verticalAlign: 'middle'}}>{idx + 1}</td>
                                   <td className="px-4 border-l border-slate-100">{row.month}</td>
                                   <td className="px-4 border-l border-slate-100" style={forceEnNumsStyle}>{row.regTime}</td>
                                   <td className="px-4 border-l border-slate-100 text-blue-700 font-black font-mono">{row.invoiceId}</td>
+                                  <td className="px-4 border-l border-slate-100 text-amber-700 font-black font-mono">{row.manualInvoiceNo}</td>
                                   <td className="px-4 border-l border-slate-100" style={forceEnNumsStyle}>{row.date}</td>
                                   <td className="px-4 border-l border-slate-100 text-indigo-600 font-black">{row.shift}</td>
                                   <td className="px-4 border-l border-slate-100 font-mono text-gray-400" style={forceEnNumsStyle}>{row.customerCode}</td>
                                   <td className="px-6 border-l border-slate-100 text-right font-black text-slate-900">{row.customerName}</td>
                                   <td className="px-4 border-l border-slate-100 text-xs text-slate-400 max-w-xs truncate">{row.customerAddress}</td>
                                   <td className="px-4 border-l border-slate-100 font-mono text-blue-600" style={forceEnNumsStyle}>{row.orderNo}</td>
-                                  <td className="px-4 border-l border-slate-100 bg-blue-50/50 font-black text-blue-800" style={forceEnNumsStyle}>{row.orderTotalQty.toFixed(3)}</td>
-                                  <td className="px-4 border-l border-slate-100 bg-orange-50/50 text-orange-800 font-black" style={forceEnNumsStyle}>{row.itemSoQty.toFixed(3)}</td>
+                                  <td className="px-4 border-l border-slate-100 bg-blue-50/50 font-black text-blue-800" style={forceEnNumsStyle}>{(row.orderTotalQty || 0).toFixed(3)}</td>
+                                  <td className="px-4 border-l border-slate-100 bg-orange-50/50 text-orange-800 font-black" style={forceEnNumsStyle}>{(row.itemSoQty || 0).toFixed(3)}</td>
                                   <td className="px-4 border-l border-slate-100" style={forceEnNumsStyle}>{row.arrivalDate}</td>
                                   <td className="px-4 border-l border-slate-100" style={forceEnNumsStyle}>{row.arrivalTime}</td>
                                   <td className="px-4 border-l border-slate-100 font-mono" style={forceEnNumsStyle}>{row.ticketNo}</td>
@@ -233,10 +254,10 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
                                   <td className="px-4 border-l border-slate-100 text-xs text-slate-500">{row.confirmer}</td>
                                   <td className="px-4 border-l border-slate-100 font-mono text-slate-400" style={forceEnNumsStyle}>{row.itemCode}</td>
                                   <td className="px-6 border-l border-slate-100 text-right font-black text-indigo-900">{row.itemName}</td>
-                                  <td className="px-4 border-l border-slate-100 text-blue-600 bg-blue-50/10" style={forceEnNumsStyle}>{row.bulkQty.toFixed(3)}</td>
-                                  <td className="px-4 border-l border-slate-100 text-indigo-600 bg-indigo-50/10" style={forceEnNumsStyle}>{row.packedQty.toFixed(3)}</td>
-                                  <td className="px-6 border-l border-slate-100 bg-emerald-50 text-emerald-800 text-lg font-black" style={forceEnNumsStyle}>{row.totalLoaded.toFixed(3)}</td>
-                                  <td className={`px-4 border-l border-slate-100 font-black ${row.itemVariance !== 0 ? 'text-red-600 bg-red-50' : 'text-gray-300'}`} style={forceEnNumsStyle}>{row.itemVariance.toFixed(3)}</td>
+                                  <td className="px-4 border-l border-slate-100 text-blue-600 bg-blue-50/10" style={forceEnNumsStyle}>{(row.bulkQty || 0).toFixed(3)}</td>
+                                  <td className="px-4 border-l border-slate-100 text-indigo-600 bg-indigo-50/10" style={forceEnNumsStyle}>{(row.packedQty || 0).toFixed(3)}</td>
+                                  <td className="px-6 border-l border-slate-100 bg-emerald-50 text-emerald-800 text-lg font-black" style={forceEnNumsStyle}>{(row.totalLoaded || 0).toFixed(3)}</td>
+                                  <td className={`px-4 border-l border-slate-100 font-black ${(row.itemVariance || 0) !== 0 ? 'text-red-600 bg-red-50' : 'text-gray-300'}`} style={forceEnNumsStyle}>{(row.itemVariance || 0).toFixed(3)}</td>
                                   <td className="px-4 border-l border-slate-100"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px]">{row.salesType}</span></td>
                                   <td className="px-4 border-l border-slate-100" style={forceEnNumsStyle}>{row.prodDate}</td>
                                   <td className="px-4 border-l border-slate-100 text-xs">{row.payment}</td>
@@ -250,8 +271,8 @@ export const DailySalesTable: React.FC<Props> = ({ filterCategory }) => {
                       {filteredData.length > 0 && (
                           <tfoot className="sticky bottom-0 z-20 bg-slate-900 text-white font-black h-16 shadow-[0_-5px_15px_rgba(0,0,0,0.2)]">
                               <tr>
-                                  <td colSpan={29} className="p-4 text-left pr-10 text-xl border-l border-slate-700">إجمالي الكميات المحملة المعروضة:</td>
-                                  <td className="p-4 bg-emerald-600 text-2xl border-l border-slate-700" style={forceEnNumsStyle}>{totalActualLoaded.toFixed(3)}</td>
+                                  <td colSpan={30} className="p-4 text-left pr-10 text-xl border-l border-slate-700">إجمالي الكميات المحملة المعروضة:</td>
+                                  <td className="p-4 bg-emerald-600 text-2xl border-l border-slate-700" style={forceEnNumsStyle}>{(totalActualLoaded || 0).toFixed(3)}</td>
                                   <td colSpan={5}></td>
                               </tr>
                           </tfoot>

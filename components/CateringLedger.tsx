@@ -2,11 +2,16 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
-import { Search, Edit2, Layout, Columns, Rows, Package, AlertTriangle, FileDown, Check, X, RefreshCw, Undo2, PlusCircle, MinusCircle } from 'lucide-react';
+import { 
+    Search, Edit2, Layout, Columns, Rows, Package, AlertTriangle, 
+    FileDown, Check, X, RefreshCw, Undo2, PlusCircle, MinusCircle, 
+    Plus, Save, Tag, Hash, Trash2 
+} from 'lucide-react';
 import { TableToolbar } from './TableToolbar';
 import { ReportActionsBar } from './ReportActionsBar';
 import { printService } from '../services/printing';
 import { PrintSettingsModal } from './PrintSettingsModal';
+import { GlassCard, GlassInput, ConfirmModal } from './NeumorphicUI';
 import { Product } from '../types';
 import * as XLSX from 'xlsx';
 
@@ -29,14 +34,26 @@ const forceEnNumsStyle = {
 };
 
 export const CateringLedger: React.FC = () => {
-    const { settings, refreshProducts, user, products: allProducts } = useApp();
+    const { settings, refreshProducts, user, products: allProducts, deleteProduct, addNotification } = useApp();
     const [searchTerm, setSearchTerm] = useState('');
     const [hideZeroRows, setHideZeroRows] = useState(false);
     const [showPrintModal, setShowPrintModal] = useState(false);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
     const tableRef = useRef<HTMLTableElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const isAdmin = user?.role === 'admin';
+
+    const [newProductForm, setNewProductForm] = useState<Partial<Product>>({
+        name: '',
+        barcode: '',
+        unit: 'عدد',
+        category: 'إعاشة تموينية',
+        initialStockBulk: 0,
+        minStock: 5,
+        warehouse: 'catering'
+    });
 
     const [frozenCols, setFrozenCols] = useState(3);
     const [frozenRows, setFrozenRows] = useState(1);
@@ -119,7 +136,6 @@ export const CateringLedger: React.FC = () => {
                 }
             });
 
-            // رصيد أول هنا قيمة ثابتة تمثل "جرد البداية" ولا تتغير بحساب الحركات
             const fixedOpeningBalance = p.initialStockBulk || 0;
 
             return {
@@ -153,9 +169,7 @@ export const CateringLedger: React.FC = () => {
             const newValue = Number(editingLimit.value);
             const updated = { ...prod };
             if (editingLimit.field === 'opening') {
-                // تحديث رصيد أول المدة الثابت
                 updated.initialStockBulk = newValue;
-                // إعادة حساب الرصيد الحالي بناءً على القيمة الثابتة الجديدة + كافة الحركات التاريخية
                 const row = ledgerData.find(r => r.id === prod.id);
                 if (row) {
                     const netIn = row.inbound + row.returns + row.adjIn + row.transferIn;
@@ -169,6 +183,34 @@ export const CateringLedger: React.FC = () => {
             refreshProducts();
         }
         setEditingLimit(null);
+    };
+
+    const handleSaveNewProduct = () => {
+        if (!newProductForm.name || !newProductForm.barcode) {
+            alert('يرجى إكمال البيانات الأساسية (الاسم والباركود)');
+            return;
+        }
+        
+        const opening = Number(newProductForm.initialStockBulk) || 0;
+        const product: Product = {
+            ...newProductForm as Product,
+            id: `CAT-${Date.now()}`,
+            stock: opening,
+            stockBulk: opening,
+            stockPacked: 0,
+            price: 0,
+            cost: 0,
+            warehouse: 'catering'
+        };
+
+        dbService.saveProduct(product);
+        refreshProducts();
+        setIsAddModalOpen(false);
+        setNewProductForm({
+            name: '', barcode: '', unit: 'عدد', category: 'إعاشة تموينية',
+            initialStockBulk: 0, minStock: 5, warehouse: 'catering'
+        });
+        addNotification('تم إضافة صنف الإعاشة بنجاح', 'success');
     };
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,10 +244,7 @@ export const CateringLedger: React.FC = () => {
 
                     if (existingIdx >= 0) {
                         const existingProd = currentProducts[existingIdx];
-                        // حفظ رصيد أول المدة كقيمة ثابتة
                         existingProd.initialStockBulk = openingFromExcel;
-                        
-                        // تحديث الرصيد الحالي (الرصيد الثابت الجديد + الحركات السابقة المسجلة)
                         const itemMoves = movements.filter(m => m.items.some(i => i.productId === existingProd.id));
                         let netChange = 0;
                         itemMoves.forEach(m => {
@@ -224,7 +263,7 @@ export const CateringLedger: React.FC = () => {
                             name: name || `صنف إعاشة ${barcode}`,
                             barcode: barcode || `ID-${Date.now()}-${index}`,
                             stock: openingFromExcel,
-                            initialStockBulk: openingFromExcel, // الرصيد الثابت
+                            initialStockBulk: openingFromExcel,
                             warehouse: 'catering',
                             unit: unit,
                             category: 'إعاشة',
@@ -241,6 +280,15 @@ export const CateringLedger: React.FC = () => {
             if (fileInputRef.current) fileInputRef.current.value = '';
         };
         reader.readAsArrayBuffer(file);
+    };
+
+    const handleDeleteProduct = () => {
+        if (deleteId) {
+            deleteProduct(deleteId);
+            refreshProducts();
+            setDeleteId(null);
+            addNotification('تم حذف الصنف نهائياً', 'warning');
+        }
     };
 
     const getCellStyle = (isNumeric: boolean = false, colIdx?: number): React.CSSProperties => ({
@@ -287,11 +335,23 @@ export const CateringLedger: React.FC = () => {
         <div className="space-y-4 animate-fade-in font-cairo" dir="rtl">
             {showPrintModal && <PrintSettingsModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} context="catering_ledger" />}
             
+            <ConfirmModal 
+                isOpen={!!deleteId} 
+                onClose={() => setDeleteId(null)} 
+                onConfirm={handleDeleteProduct} 
+                title="حذف صنف إعاشة" 
+                message="هل أنت متأكد من حذف هذا الصنف؟ سيتم مسح كافة سجلاته وأرصدته من النظام." 
+                confirmText="حذف نهائي" 
+                cancelText="إلغاء" 
+            />
+
             <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => { setTableStyles(DEFAULT_STYLES); setFrozenCols(3); setFrozenRows(1); }} />
 
             <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2 no-print">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                     <ReportActionsBar 
+                        onNewEntry={() => setIsAddModalOpen(true)}
+                        newEntryLabel="إضافة صنف جديد"
                         onPrint={() => printService.printWindow(tableRef.current?.parentElement?.innerHTML || '')}
                         onExport={() => {}}
                         onImport={() => fileInputRef.current?.click()}
@@ -337,6 +397,7 @@ export const CateringLedger: React.FC = () => {
                                         <div onMouseDown={(e) => onMouseDownResizeCol(i, e)} className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-emerald-400/50 transition-colors z-50"/>
                                     </th>
                                 ))}
+                                <th className="p-2 border border-emerald-800 bg-red-900 text-white text-center sticky left-0 z-50 w-[50px] min-w-[50px]">سلة</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -377,12 +438,78 @@ export const CateringLedger: React.FC = () => {
                                             {row.balance <= row.min ? 'منخفض جداً' : 'رصيد آمن'}
                                         </span>
                                     </td>
+                                    <td className="p-2 border text-center sticky left-0 z-40 bg-white w-[50px] min-w-[50px]">
+                                        <button 
+                                            onClick={() => setDeleteId(row.id)}
+                                            className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-all"
+                                            title="حذف صنف"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
             </div>
+
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-cairo">
+                    <GlassCard className="w-full max-w-3xl relative bg-white border-t-8 border-emerald-600 p-8 shadow-2xl rounded-[3rem] overflow-y-auto max-h-[90vh]">
+                        <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 left-6 text-gray-400 hover:text-red-500 transition-all transform hover:rotate-90"><X size={32}/></button>
+                        <h3 className="text-3xl font-black mb-8 text-right text-emerald-900 border-b-4 border-emerald-50 pb-4 flex items-center gap-3">
+                            <PlusCircle size={32} className="text-emerald-600"/> إضافة صنف جديد لمخزن الإعاشة
+                        </h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8" dir="rtl">
+                            <div className="md:col-span-2">
+                                <GlassInput label="اسم الصنف الكامل (إلزامي)" value={newProductForm.name} onChange={e => setNewProductForm({...newProductForm, name: e.target.value})} placeholder="مثال: أرز درجة أولى - زيت قلي عباد..." className="text-lg font-black" />
+                            </div>
+                            <GlassInput label="كود الصنف / باركود (إلزامي)" value={newProductForm.barcode} onChange={e => setNewProductForm({...newProductForm, barcode: e.target.value})} placeholder="أدخل كود الصنف..." />
+                            
+                            <div className="flex flex-col gap-2">
+                                <label className="text-slate-500 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Tag size={14}/> تصنيف الصنف</label>
+                                <select 
+                                    className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-slate-50 font-black text-slate-800 outline-none focus:ring-4 focus:ring-emerald-100 transition-all shadow-inner" 
+                                    value={newProductForm.category} 
+                                    onChange={e => setNewProductForm({...newProductForm, category: e.target.value})}
+                                >
+                                    <option value="إعاشة تموينية">إعاشة تموينية</option>
+                                    <option value="منظفات">منظفات</option>
+                                    <option value="مستهلكات">مستهلكات</option>
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <label className="text-slate-500 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Package size={14}/> الوحدة</label>
+                                <select 
+                                    className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-slate-50 font-black text-slate-800 outline-none focus:ring-4 focus:ring-emerald-100 transition-all shadow-inner" 
+                                    value={newProductForm.unit} 
+                                    onChange={e => setNewProductForm({...newProductForm, unit: e.target.value})}
+                                >
+                                    {settings.units?.map(u => <option key={u} value={u}>{u}</option>)}
+                                    <option value="عدد">عدد</option>
+                                    <option value="كجم">كجم</option>
+                                    <option value="كرتونة">كرتونة</option>
+                                    <option value="لتر">لتر</option>
+                                </select>
+                            </div>
+
+                            <GlassInput label="رصيد أول جرد (ثابت)" type="number" step="any" value={newProductForm.initialStockBulk?.toString()} onChange={e => setNewProductForm({...newProductForm, initialStockBulk: parseFloat(e.target.value) || 0})} />
+                            <GlassInput label="الحد الأدنى (للتنبيه)" type="number" value={newProductForm.minStock?.toString()} onChange={e => setNewProductForm({...newProductForm, minStock: parseInt(e.target.value) || 0})} />
+                        </div>
+
+                        <div className="mt-12 flex gap-4">
+                            <button onClick={handleSaveNewProduct} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-6 rounded-3xl font-black text-2xl shadow-xl flex items-center justify-center gap-4 transition-all active:scale-95 border-b-8 border-emerald-900">
+                                <Save size={32}/> ترحيل وحفظ الصنف الجديد
+                            </button>
+                            <button onClick={() => setIsAddModalOpen(false)} className="px-10 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 transition-colors">إلغاء</button>
+                        </div>
+                    </GlassCard>
+                </div>
+            )}
+
             {editingLimit && <div className="fixed bottom-4 left-4 bg-indigo-600 text-white p-3 rounded-xl shadow-2xl flex items-center gap-3 animate-bounce-in z-[100] font-bold"><Edit2 size={16}/> جاري التعديل... اضغط Enter للحفظ</div>}
         </div>
     );

@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
-import { Search, Printer, Settings, Calendar, Layout } from 'lucide-react';
+import { Search, Printer, Settings, Calendar, Layout, ZoomIn, ChevronDown } from 'lucide-react';
 import { printService } from '../services/printing';
 import { TableToolbar } from './TableToolbar';
 import { ReportActionsBar } from './ReportActionsBar';
@@ -36,6 +37,7 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
     const { settings, products, user } = useApp();
     const [searchTerm, setSearchTerm] = useState('');
     const [showPrintModal, setShowPrintModal] = useState(false);
+    const [pageScale, setPageScale] = useState(100); 
     const [dateFilter, setDateFilter] = useState({
         start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0]
@@ -115,7 +117,6 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
                 department: p.customFields?.department || (warehouse === 'catering' ? 'الإدارة العامة' : '-')
             };
 
-            // حساب التغير الصافي من الآن رجوعاً إلى تاريخ البدء للوصول لـ "رصيد أول المدة"
             let netChangeFromStartToNow = 0;
             
             const allItemMovements = movements.filter(m => m.items.some(i => i.productId === p.id));
@@ -125,7 +126,6 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
                 const qty = Number(item.quantity);
                 const mDate = new Date(m.date);
 
-                // حركات داخل فترة التقرير
                 if (mDate >= startDate && mDate <= endDate) {
                     if (m.type === 'in') { if (m.reason?.includes('مرتجع')) row.returns += qty; else row.inbound += qty; } 
                     else if (m.type === 'out') row.issue += qty;
@@ -133,7 +133,6 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
                     else if (m.type === 'adjustment') { if (m.reason?.includes('عجز') || m.reason?.includes('خصم')) row.adjOut += qty; else row.adjIn += qty; }
                 }
 
-                // حركات تؤثر على الرصيد الحالي بدءاً من تاريخ البدء
                 if (mDate >= startDate) {
                     const factor = (m.type === 'in' || (m.type === 'adjustment' && !m.reason?.includes('خصم'))) ? 1 : -1;
                     netChangeFromStartToNow += (qty * factor);
@@ -150,7 +149,6 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
                 if (sDate >= startDate) netChangeFromStartToNow -= qty;
             });
 
-            // رصيد أول للمخازن في هذا التقرير = الرصيد الفعلي الحالي - صافي التغير منذ بداية التاريخ المختار
             row.opening = p.stock - netChangeFromStartToNow;
             row.closing = row.opening + row.inbound + row.adjIn + row.returns - row.issue - row.sales - row.adjOut - row.transfers;
 
@@ -171,7 +169,10 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
         ...(isNumeric ? forceEnNumsStyle : {})
     });
 
-    const formatVal = (n: number) => n === 0 ? '-' : n.toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals });
+    const formatVal = (n: any) => {
+        if (n === null || n === undefined || isNaN(n) || Number(n) === 0) return "-";
+        return Number(n).toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    };
 
     const headers = [
         "م", "كود الصنف", "اسم الصنف", "الوحدة", "رصيد أول للمخازن", "الوارد", 
@@ -214,6 +215,21 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
                     <input className="w-full pr-12 pl-4 py-3 border-2 border-slate-200 rounded-2xl text-md outline-none focus:ring-4 focus:ring-blue-500/20 font-black bg-slate-50 shadow-inner" placeholder="بحث في الأصناف التي تمت عليها حركة..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                     <Search className="absolute right-4 top-3.5 text-slate-400" size={22}/>
                 </div>
+                
+                {/* Scale Control Button */}
+                <div className="relative group">
+                    <button className="px-4 h-[52px] rounded-2xl font-black border bg-white border-slate-300 text-slate-700 transition-all flex items-center gap-2 text-xs hover:bg-slate-50 shadow-sm">
+                        <ZoomIn size={20}/>
+                        <span>حجم العرض: {pageScale}%</span>
+                        <ChevronDown size={14}/>
+                    </button>
+                    <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-32 animate-fade-in">
+                        {[100, 90, 80, 70, 60, 50].map(s => (
+                            <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                        ))}
+                    </div>
+                </div>
+
                 <div className="bg-blue-50 px-6 py-3 rounded-2xl border-2 border-blue-200 text-blue-800 font-black shadow-sm flex items-center gap-3">
                     <Layout size={18}/> عدد الأصناف النشطة في الفترة: {reportData.length}
                 </div>
@@ -222,7 +238,10 @@ export const WarehousePeriodReport: React.FC<WarehousePeriodReportProps> = ({ wa
             <TableToolbar styles={tableStyles} setStyles={setTableStyles} onReset={() => setTableStyles(DEFAULT_STYLES)} />
 
             <div className="bg-white rounded-[2rem] shadow-premium border-4 border-black overflow-hidden">
-                <div className="overflow-auto max-h-[65vh]">
+                <div 
+                    className="overflow-auto max-h-[65vh] transition-all duration-300 origin-top-right"
+                    style={{ zoom: pageScale / 100 }}
+                >
                     <table className="w-full border-collapse min-w-[3200px]" ref={tableRef}>
                         <thead className="sticky top-0 z-20">
                             <tr className="bg-[#002060] text-yellow-300 font-black h-16 text-lg border-b-2 border-black">

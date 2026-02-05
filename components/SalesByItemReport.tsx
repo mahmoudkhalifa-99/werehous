@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
@@ -112,7 +113,10 @@ export const SalesByItemReport: React.FC = () => {
         ...(isNumeric ? forceEnNumsStyle : {})
     });
 
-    const formatEng = (val: number) => val.toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    const formatEng = (val: any) => {
+        if (val === null || val === undefined || isNaN(val) || Number(val) === 0) return "-";
+        return Number(val).toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    };
 
     return (
         <div className="space-y-4 animate-fade-in" dir="rtl">
@@ -161,11 +165,11 @@ export const SalesByItemReport: React.FC = () => {
                     <tbody>
                         {reportData.map((row: any, idx: number) => (
                             <tr key={idx} className="border-b border-gray-300">
-                                <td className="p-2 border-r border-gray-300" style={getCellStyle(true)}>{row.code}</td>
-                                <td className="p-2 border-r border-gray-300" style={{...getCellStyle(), textAlign:'right'}}>{row.name}</td>
-                                <td className="p-2 border-r border-gray-300 bg-[#e2efda]" style={getCellStyle(true)}>{formatEng(row.grand_total)}</td>
+                                <td className="p-2 border-r border-gray-200" style={getCellStyle(true)}>{row.code}</td>
+                                <td className="p-2 border-r border-gray-200" style={{...getCellStyle(), textAlign:'right'}}>{row.name}</td>
+                                <td className="p-2 border-r border-gray-200 bg-[#e2efda]" style={getCellStyle(true)}>{formatEng(row.grand_total)}</td>
                                 <td className="p-2 border-r border-gray-300 bg-[#fff2cc]" style={getCellStyle(true)}>{formatEng(row.bulk_total)}</td>
-                                <td className="p-2 border-r border-gray-300" style={getCellStyle(true)}>{row.bulk_clients > 0 ? formatEng(row.bulk_clients) : '-'}</td>
+                                <td className="p-2 border-r border-gray-200" style={getCellStyle(true)}>{row.bulk_clients > 0 ? formatEng(row.bulk_clients) : '-'}</td>
                                 <td className="p-2 border-r border-gray-300" style={getCellStyle(true)}>{row.bulk_farms > 0 ? formatEng(row.bulk_farms) : '-'}</td>
                                 <td className="p-2 border-r border-gray-300 bg-[#fff2cc]" style={getCellStyle(true)}>{formatEng(row.packed_total)}</td>
                                 <td className="p-2 border-r border-gray-300" style={getCellStyle(true)}>{row.packed_clients > 0 ? formatEng(row.packed_clients) : '-'}</td>

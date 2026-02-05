@@ -6,7 +6,7 @@ import { Product, StockMovement } from '../types';
 import { 
     Search, Calendar, Printer, Settings, Eye, EyeOff, 
     FileSpreadsheet, Download, History, Calculator, ArrowRightLeft,
-    ChevronLeft
+    ChevronLeft, ZoomIn, ChevronDown
 } from 'lucide-react';
 import { printService } from '../services/printing';
 import { TableToolbar } from './TableToolbar';
@@ -43,6 +43,7 @@ export const RawPeriodReport: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [hideZeroRows, setHideZeroRows] = useState(false);
     const [showPrintModal, setShowPrintModal] = useState(false);
+    const [pageScale, setPageScale] = useState(100); // New state for zoom
     const [dateRange, setDateRange] = useState({
         start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0]
@@ -259,6 +260,21 @@ export const RawPeriodReport: React.FC = () => {
                         <button onClick={handleExport} className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-2xl font-black text-xs shadow-xl hover:bg-emerald-600 transition-all active:scale-95">
                             <FileSpreadsheet size={18}/> تصدير Excel
                         </button>
+
+                        {/* Zoom Scale Button */}
+                        <div className="relative group">
+                            <button className="px-4 py-3 rounded-2xl font-black border bg-white border-slate-300 text-slate-700 transition-all flex items-center gap-2 text-xs hover:bg-slate-50 shadow-sm">
+                                <ZoomIn size={18}/>
+                                <span>{pageScale}%</span>
+                                <ChevronDown size={14}/>
+                            </button>
+                            <div className="absolute top-full right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[500] hidden group-hover:block p-2 w-28 animate-fade-in">
+                                {[100, 90, 80, 70, 60, 50].map(s => (
+                                    <button key={s} onClick={() => setPageScale(s)} className={`w-full text-center p-2 rounded-lg font-bold text-xs hover:bg-blue-50 mb-1 last:mb-0 ${pageScale === s ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{s}%</button>
+                                ))}
+                            </div>
+                        </div>
+
                         <button onClick={() => setShowPrintModal(true)} className="p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-all shadow-lg border border-white/10">
                             <Settings size={22}/>
                         </button>
@@ -272,7 +288,7 @@ export const RawPeriodReport: React.FC = () => {
                     <input className="w-full pr-12 pl-4 py-2.5 border-2 border-slate-50 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 font-bold bg-slate-50 shadow-inner" placeholder="بحث سريع في أسماء الأصناف أو الأكواد..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                     <Search className="absolute right-4 top-3 text-slate-300" size={20}/>
                 </div>
-                <button onClick={() => setHideZeroRows(!hideZeroRows)} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-xs border transition-all ${hideZeroRows ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-slate-200 text-slate-500'}`}>
+                <button onClick={() => setHideZeroRows(!hideZeroRows)} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-xs border transition-all ${hideZeroRows ? 'bg-orange-50 border-orange-200 text-orange-700 shadow-inner' : 'bg-white border-slate-200 text-slate-500'}`}>
                     {hideZeroRows ? <EyeOff size={18}/> : <Eye size={18}/>}
                     {hideZeroRows ? 'إظهار الصفري' : 'إخفاء الصفري'}
                 </button>
@@ -282,7 +298,10 @@ export const RawPeriodReport: React.FC = () => {
 
             {/* Main Table */}
             <div className="bg-white rounded-[1.5rem] shadow-premium border-2 border-black overflow-hidden relative">
-                <div className="overflow-auto max-h-[70vh]">
+                <div 
+                    className="overflow-auto max-h-[70vh] transition-all duration-300 origin-top-right"
+                    style={{ zoom: pageScale / 100 }}
+                >
                     <table className="w-full border-collapse" ref={tableRef}>
                         <thead className="sticky top-0 z-20">
                             <tr className="bg-[#1e1b4b] text-yellow-300 h-16 font-black text-[11px] uppercase tracking-tighter shadow-md">

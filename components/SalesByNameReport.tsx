@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { dbService } from '../services/storage';
 import { Search, Eye, EyeOff, LayoutList } from 'lucide-react';
@@ -165,7 +165,10 @@ export const SalesByNameReport: React.FC<Props> = ({ filterCategory, title }) =>
         ...(isNumeric ? forceEnNumsStyle : {})
     });
 
-    const formatEng = (val: number) => val.toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    const formatEng = (val: any) => {
+        if (val === null || val === undefined || isNaN(val) || Number(val) === 0) return "-";
+        return Number(val).toLocaleString('en-US', { minimumFractionDigits: tableStyles.decimals, maximumFractionDigits: tableStyles.decimals });
+    };
 
     return (
         <div className="space-y-4 animate-fade-in" dir="rtl">

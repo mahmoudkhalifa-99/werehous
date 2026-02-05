@@ -18,7 +18,7 @@ export const AiAssistant: React.FC = () => {
   const { settings, t } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'model', text: 'Hello! I am your GlassPOS Assistant. Ask me about your inventory, sales, or any product details.', timestamp: new Date() }
+    { id: '1', role: 'model', text: 'Hello! I am your GlassPOS Assistant. Ask me about your inventory, sales, expenses or any product details.', timestamp: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,21 +35,20 @@ export const AiAssistant: React.FC = () => {
   const generateContext = () => {
     const products = dbService.getProducts();
     const sales = dbService.getSales();
+    const expenses = dbService.getExpenses();
     const today = new Date().toISOString().split('T')[0];
     const todaySales = sales.filter(s => s.date.startsWith(today));
+    const todayExpenses = expenses.filter(e => e.date.startsWith(today));
     
     // Summarize data to save tokens
-    const productSummary = products.map(p => 
+    const productSummary = products.slice(0, 50).map(p => 
       `${p.name} (Stock: ${p.stock} ${p.unit}, Price: ${p.price}, Warehouse: ${p.warehouse})`
     ).join('\n');
 
     const salesStats = {
       totalRevenueToday: todaySales.reduce((sum, s) => sum + s.total, 0),
+      totalExpensesToday: todayExpenses.reduce((sum, e) => sum + e.amount, 0),
       transactionCount: todaySales.length,
-      topItemsToday: todaySales.flatMap(s => s.items).reduce((acc: any, item) => {
-         acc[item.name] = (acc[item.name] || 0) + item.quantity;
-         return acc;
-      }, {})
     };
 
     return `
@@ -57,11 +56,13 @@ export const AiAssistant: React.FC = () => {
       Currency: ${settings.currency}
       Today's Date: ${today}
       
-      Sales Today Summary:
+      Today Summary:
       Total Revenue: ${salesStats.totalRevenueToday}
+      Total Expenses: ${salesStats.totalExpensesToday}
+      Net for Today: ${salesStats.totalRevenueToday - salesStats.totalExpensesToday}
       Transactions: ${salesStats.transactionCount}
       
-      Inventory Snapshot:
+      Inventory Snapshot (Top 50 items):
       ${productSummary}
     `;
   };
@@ -75,31 +76,25 @@ export const AiAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Initialize Gemini
-      // Note: In a real production build, ensure API_KEY is handled securely.
-      // For this local/demo setup, we assume process.env.API_KEY is available.
-      // Create a new GoogleGenAI instance right before making an API call to ensure it uses the latest key
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
       const contextData = generateContext();
       
       const systemInstruction = `
-        You are the intelligent assistant for the GlassPOS system. 
-        You have access to the store's current inventory and sales data provided below.
+        You are the intelligent assistant for the GlassPOS system (Dakahlya Warehouse System). 
+        You have access to the store's current inventory, sales and financial expenses data provided below.
         Answer the user's questions concisely and helpfully based ONLY on this data.
-        If asked about low stock, check items with stock < 10.
+        If asked about financial status, consider both sales and expenses.
         Be polite and professional.
         
         ${contextData}
       `;
 
-      // Using gemini-3-flash-preview for basic text tasks
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: input,
         config: {
           systemInstruction: systemInstruction,
-          temperature: 0.2, // Low temperature for factual data queries
+          temperature: 0.2, 
         },
       });
 
@@ -124,7 +119,6 @@ export const AiAssistant: React.FC = () => {
 
   return (
     <>
-      {/* Floating Button */}
       <motion.button
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
@@ -134,7 +128,6 @@ export const AiAssistant: React.FC = () => {
         {isOpen ? <X size={24} /> : <Sparkles size={24} />}
       </motion.button>
 
-      {/* Chat Window */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -144,7 +137,6 @@ export const AiAssistant: React.FC = () => {
             className="fixed bottom-24 right-6 z-50 w-full max-w-sm"
           >
             <GlassCard className="h-[500px] flex flex-col p-0 overflow-hidden border border-white/50 shadow-2xl bg-white/80 backdrop-blur-xl">
-              {/* Header */}
               <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white flex items-center gap-3 shadow-sm">
                 <div className="bg-white/20 p-2 rounded-full">
                   <Bot size={20} />
@@ -155,7 +147,6 @@ export const AiAssistant: React.FC = () => {
                 </div>
               </div>
 
-              {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
                 {messages.map((msg) => (
                   <div
@@ -185,12 +176,11 @@ export const AiAssistant: React.FC = () => {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input Area */}
               <div className="p-3 bg-white border-t border-gray-200">
                 <div className="flex gap-2">
                   <input
                     className="flex-1 bg-gray-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="Ask about sales or stock..."
+                    placeholder="Ask about sales, stock or expenses..."
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSend()}
