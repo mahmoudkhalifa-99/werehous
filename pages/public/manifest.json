@@ -1,0 +1,21 @@
+{
+  "name": "نظام إدارة مخازن الدقهلية",
+  "short_name": "Dakahlia ERP",
+  "description": "نظام متطور لإدارة مخازن الدقهلية للدواجن",
+  "start_url": "/#/login",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f4aa8",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
